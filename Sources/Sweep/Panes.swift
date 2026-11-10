@@ -423,37 +423,7 @@ private struct ProjectDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(project.artifacts) { artifact in
-                let off = artifact.tier == .safe && !model.settings.kinds.contains(artifact.kind)
-                HStack(spacing: 10) {
-                    Image(systemName: artifact.tier == .safe && !off ? "checkmark.circle.fill" : "questionmark.circle")
-                        .font(.system(size: 12))
-                        .foregroundStyle(artifact.tier == .safe && !off ? MB.accent : MB.orange)
-                        .frame(width: 14)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(artifact.relativePath)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(MB.text)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text(off ? "\(artifact.kind.label) are switched off under Cleanup"
-                             : artifact.tier == .safe ? "\(artifact.kind.label) · safe to remove" + (artifact.restore.map { " · back with \($0)" } ?? "")
-                             : "Asks first: \((artifact.reason ?? "").prefix(1).lowercased() + (artifact.reason ?? "").dropFirst())")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(MB.dim)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                    Text(Format.bytes(artifact.bytes))
-                        .font(.system(size: 12).monospacedDigit())
-                        .foregroundStyle(MB.muted)
-                    if artifact.tier == .ask || off {
-                        Button("Remove") { asking = artifact }
-                            .buttonStyle(.mbQuiet)
-                            .disabled(model.busy.contains(project.path) || project.inUse)
-                    }
-                }
-                .padding(.vertical, 7)
+                ArtifactLine(artifact: artifact, project: project) { asking = artifact }
             }
             HStack(spacing: 6) {
                 Image(systemName: "folder").font(.system(size: 10.5))
@@ -468,14 +438,78 @@ private struct ProjectDetail: View {
         .padding(.top, 2)
         .padding(.bottom, 12)
         .background(Color.white.opacity(0.018))
-        .confirmationDialog("Remove \(asking?.relativePath ?? "")?", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } })) {
+        .confirmationDialog(dialogTitle, isPresented: isAsking) {
             Button("Remove \(Format.bytes(asking?.bytes ?? 0))", role: .destructive) {
                 if let artifact = asking { model.clean(project, artifacts: [artifact], allowAsk: true) }
             }
         } message: {
-            Text((asking?.reason.map { $0 + ". " } ?? "")
-                 + (asking?.restore.map { "Bring it back with \($0)." } ?? "Sweep doesn't know a command that brings this back exactly as it was."))
+            Text(dialogMessage)
         }
+    }
+
+    private var isAsking: Binding<Bool> {
+        Binding(get: { asking != nil }, set: { if !$0 { asking = nil } })
+    }
+
+    private var dialogTitle: String { "Remove \(asking?.relativePath ?? "")?" }
+
+    private var dialogMessage: String {
+        let reason = asking?.reason.map { $0 + ". " } ?? ""
+        let back = asking?.restore.map { "Bring it back with \($0)." } ?? "Sweep doesn't know a command that brings this back exactly as it was."
+        return reason + back
+    }
+}
+
+/// One folder in a project's detail: a mark, its path and why, its size, and Remove when it asks first.
+private struct ArtifactLine: View {
+    @EnvironmentObject private var model: AppModel
+    let artifact: Artifact
+    let project: Project
+    let remove: () -> Void
+
+    /// Safe, but its kind is switched off under Cleanup.
+    private var off: Bool { artifact.tier == .safe && !model.settings.kinds.contains(artifact.kind) }
+    private var safe: Bool { artifact.tier == .safe && !off }
+
+    private var explanation: String {
+        if off { return "\(artifact.kind.label) are switched off under Cleanup" }
+        if artifact.tier == .safe {
+            let back = artifact.restore.map { " · back with \($0)" } ?? ""
+            return "\(artifact.kind.label) · safe to remove" + back
+        }
+        let reason = artifact.reason ?? ""
+        return "Asks first: " + reason.prefix(1).lowercased() + reason.dropFirst()
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: safe ? "checkmark.circle.fill" : "questionmark.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(safe ? MB.accent : MB.orange)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(artifact.relativePath)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(MB.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(explanation)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(MB.dim)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Text(Format.bytes(artifact.bytes))
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(MB.muted)
+            if !safe {
+                Button("Remove", action: remove)
+                    .buttonStyle(.mbQuiet)
+                    .disabled(model.busy.contains(project.path) || project.inUse)
+            }
+        }
+        .padding(.vertical, 7)
     }
 }
 
