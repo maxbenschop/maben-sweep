@@ -1,0 +1,43 @@
+# Xcode project for the release build only (./release.sh). Day-to-day building
+# uses SwiftPM (./build.sh). Generated with xcodegen; the .xcodeproj is not kept.
+name: MabenSweep
+options:
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    ENABLE_HARDENED_RUNTIME: "YES"
+    DEBUG_INFORMATION_FORMAT: dwarf
+    DEAD_CODE_STRIPPING: "YES"
+targets:
+  MabenSweep:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Sweep
+      - path: build/AppIcon.icns
+        buildPhase: resources
+      - path: CHANGELOG.md
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: Maben Sweep
+        EXECUTABLE_NAME: Sweep
+        PRODUCT_BUNDLE_IDENTIFIER: gg.maben.sweep
+        INFOPLIST_FILE: build/Info-release.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+    dependencies:
+      - target: SweepCore
+      - sdk: IOKit.framework
+      - sdk: ServiceManagement.framework
+  SweepCore:
+    type: library.static
+    platform: macOS
+    sources: [Sources/SweepCore]
+    settings:
+      base:
+        PRODUCT_NAME: SweepCore
+        SKIP_INSTALL: "YES"
