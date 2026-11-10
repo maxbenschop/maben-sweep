@@ -62,7 +62,7 @@ spctl --assess --type exec "$APP"
 VERSION=$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")
 mkdir -p dist
 ZIP="dist/Maben-Sweep.zip"
-rm -f dist/Maben-Sweep*.zip dist/Maben-Sweep*.dmg
+rm -f dist/Maben-Sweep.zip dist/Maben-Sweep.dmg
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
 # Disk image: the app beside a link to Applications, so installing is one drag. The app inside is the
