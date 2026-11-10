@@ -94,5 +94,5 @@ The app updates itself from GitHub Releases (`Sources/Sweep/Updater.swift`), the
 start, every 6 hours and after waking it asks the GitHub API for the latest release, downloads
 `Maben-Sweep.zip`, and only installs it if the app inside is signed with the Developer ID of team NJTYRVLSA8 with
 bundle ID `gg.maben.sweep`, accepted by Gatekeeper, and has the announced version. It waits until no scan or
-cleanup is running; the old app goes to the Trash. Both switches (check, install) are on by default, under About.
+cleanup is running; the old app goes to the Trash. Both switches (check, install) are on by default, on the Cleanup page under Updates.
 This is the only network request the app makes.

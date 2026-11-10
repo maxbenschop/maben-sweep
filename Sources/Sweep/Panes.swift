@@ -22,7 +22,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .projects: "Folders that come back with one command, per project."
         case .caches: "Shared caches of your tools. Cleaned only when you click."
         case .history: "What Sweep removed, and how to bring it back."
-        case .cleanup: "When Sweep cleans by itself, and what it may remove."
+        case .cleanup: "When Sweep cleans by itself, what it may remove, and updates."
         case .folders: "Where Sweep looks for projects."
         case .about: ""
         }
@@ -746,19 +746,20 @@ struct CleanupPane: View {
                 }
             }
 
-            MBSection(title: "A folder is only removed when") {
-                check("Its name is known and the file that proves it sits next to it", "node_modules only counts beside a package.json.")
-                check("Git ignores it and tracks nothing inside it", "A committed dist or build folder is never touched.")
-                check("It can be rebuilt the same way", "Dependencies need a lockfile.")
-                check("It is a real folder inside the project", "Links to other places are never followed.")
-                check("Nothing is running in the project", "A dev server or an agent keeps it safe.")
-            }
+            UpdatesSection()
 
             MBSection(title: "Startup") {
                 MBRow(icon: "power", title: "Open at login",
                       info: "Sweep needs to be running to clean automatically. It sits in the menu bar and does nothing between scans.") {
                     MBToggle(isOn: $model.launchAtLogin).disabled(!isBundled)
                 }
+            }
+            MBSection(title: "A folder is only removed when") {
+                check("Its name is known and the file that proves it sits next to it", "node_modules only counts beside a package.json.")
+                check("Git ignores it and tracks nothing inside it", "A committed dist or build folder is never touched.")
+                check("It can be rebuilt the same way", "Dependencies need a lockfile.")
+                check("It is a real folder inside the project", "Links to other places are never followed.")
+                check("Nothing is running in the project", "A dev server or an agent keeps it safe.")
             }
         }
         .onAppear { refreshNotifications() }
@@ -860,6 +861,7 @@ struct FoldersPane: View {
 // MARK: - About
 
 struct AboutPane: View {
+    @EnvironmentObject private var navigation: Navigation
     private var short: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev" }
 
     var body: some View {
@@ -870,15 +872,20 @@ struct AboutPane: View {
                     .frame(width: 96, height: 96)
                     .shadow(color: MB.accent.opacity(0.25), radius: 24, y: 8)
                 MBWordmark(size: 22).padding(.top, 18)
-                Text("Version \(short)")
-                    .textSelection(.enabled)
-                    .font(.system(size: 12))
-                    .foregroundStyle(MB.dim)
-                    .padding(.top, 8)
-
-                UpdatesSection()
-                    .frame(width: 460)
-                    .padding(.top, 24)
+                HStack(spacing: 8) {
+                    Text("Version \(short)").textSelection(.enabled)
+                    Text("·")
+                    Button("Check for updates") {
+                        navigation.pane = .cleanup
+                        Updater.shared.check(userInitiated: true)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(MB.accent)
+                    .disabled(!isBundled)
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(MB.dim)
+                .padding(.top, 8)
 
                 if !WhatsNew.items.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {

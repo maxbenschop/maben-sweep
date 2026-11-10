@@ -86,7 +86,7 @@ enum Snapshot {
             let controller = MainWindowController(model: model)
             guard let window = controller.window else { continue }
             window.setFrameAutosaveName("")
-            window.setContentSize(NSSize(width: MainWindowController.size.width, height: suffix == "fresh" ? 600 : 900))
+            window.setContentSize(NSSize(width: MainWindowController.size.width, height: suffix == "fresh" ? 600 : 1500))
             window.orderFrontRegardless()
             for pane in Pane.allCases where suffix == "on" || pane == .projects || pane == .cleanup {
                 controller.navigation.pane = pane
