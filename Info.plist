@@ -2,39 +2,39 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>Maben Sweep</string>
-    <key>CFBundleDisplayName</key>
-    <string>Maben Sweep</string>
-    <key>CFBundleIdentifier</key>
-    <string>gg.maben.sweep</string>
-    <key>CFBundleExecutable</key>
-    <string>Sweep</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
-    <key>LSApplicationCategoryType</key>
-    <string>public.app-category.developer-tools</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSPrincipalClass</key>
-    <string>NSApplication</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSDocumentsFolderUsageDescription</key>
-    <string>Maben Sweep looks for projects in your Documents folder to find folders that can be rebuilt, such as node_modules.</string>
-    <key>NSDesktopFolderUsageDescription</key>
-    <string>Maben Sweep looks for projects on your Desktop to find folders that can be rebuilt, such as node_modules.</string>
-    <key>NSDownloadsFolderUsageDescription</key>
-    <string>Maben Sweep looks for projects in your Downloads folder to find folders that can be rebuilt, such as node_modules.</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>© 2026 Max Benschop</string>
+	<key>CFBundleDisplayName</key>
+	<string>Maben Sweep</string>
+	<key>CFBundleExecutable</key>
+	<string>Sweep</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>gg.maben.sweep</string>
+	<key>CFBundleName</key>
+	<string>Maben Sweep</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.1</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Maben Sweep looks for projects on your Desktop to find folders that can be rebuilt, such as node_modules.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Maben Sweep looks for projects in your Documents folder to find folders that can be rebuilt, such as node_modules.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Maben Sweep looks for projects in your Downloads folder to find folders that can be rebuilt, such as node_modules.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Max Benschop</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 </dict>
 </plist>

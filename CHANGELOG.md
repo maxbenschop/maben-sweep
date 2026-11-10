@@ -3,6 +3,10 @@
 Every release of Maben Sweep. The newest version is at the top. `publish.sh` uses the section for the version it
 releases as the GitHub release notes, the app shows it under About, and sweep.maben.gg/changelog is built from this file.
 
+## 1.0.1 · 10 November 2026
+
+- The update switches are now on the Cleanup page, under Updates, where the other settings are. About keeps the version and a Check for updates link.
+
 ## 1.0 · 10 November 2026
 
 - First version. Finds your projects and shows the folders that come back with one command: dependencies, build output and caches.
