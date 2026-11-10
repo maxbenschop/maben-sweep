@@ -1,0 +1,15 @@
+name: Idea
+description: Suggest something new or better, or a toolchain Sweep should know
+labels: [idea]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: For a new toolchain, name the folder it creates, the file that sits next to it, and the command that rebuilds it.

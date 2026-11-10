@@ -842,6 +842,10 @@ struct AboutPane: View {
                     .foregroundStyle(MB.dim)
                     .padding(.top, 8)
 
+                UpdatesSection()
+                    .frame(width: 460)
+                    .padding(.top, 24)
+
                 if !WhatsNew.items.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("New in this version").font(.system(size: 12, weight: .semibold)).foregroundStyle(MB.dim)
@@ -861,11 +865,12 @@ struct AboutPane: View {
 
                 HStack(spacing: 8) {
                     Link(destination: URL(string: "https://sweep.maben.gg")!) { Text("Website") }.buttonStyle(.mbPrimary)
+                    Link(destination: URL(string: "https://sweep.maben.gg/changelog/")!) { Text("Changelog") }.buttonStyle(.mbQuiet)
+                    Link(destination: URL(string: "https://github.com/maxbenschop/maben-sweep")!) { Text("GitHub") }.buttonStyle(.mbQuiet)
                     Link(destination: URL(string: "https://sweep.maben.gg/support/")!) { Text("Support") }.buttonStyle(.mbQuiet)
-                    Link(destination: URL(string: "https://maben.gg")!) { Text("Maben") }.buttonStyle(.mbQuiet)
                 }
                 .padding(.top, 20)
-                Text("© 2026 Maben")
+                Text("© 2026 Maben · MIT licence")
                     .font(.system(size: 11))
                     .foregroundStyle(MB.dim)
                     .padding(.top, 22)
@@ -874,6 +879,80 @@ struct AboutPane: View {
             .padding(.top, 44)
             .padding(.bottom, 32)
         }
+    }
+}
+
+/// Version, the Update button, and the two automatic-update switches (as in Maben Awake's Settings).
+struct UpdatesSection: View {
+    @ObservedObject private var updater = Updater.shared
+    @State private var showNotes = false
+
+    var body: some View {
+        MBSection(title: "Updates") {
+            MBRow(icon: updater.available == nil ? "checkmark.seal.fill" : "arrow.down.circle.fill",
+                  tint: updater.available == nil ? MB.text : MB.accent,
+                  title: title, detail: detail) {
+                trailing
+            }
+            MBRow(icon: "arrow.triangle.2.circlepath", title: "Check for updates automatically",
+                  info: "Asks GitHub for the latest release at start and every 6 hours. It's the only time Maben Sweep connects to the internet.") {
+                MBToggle(isOn: $updater.autoCheck)
+            }
+            MBRow(icon: "square.and.arrow.down.fill", title: "Install updates automatically",
+                  info: "Only while no scan or cleanup is running. Every update is checked for the Maben signature and Apple's notarization before it's installed.") {
+                MBToggle(isOn: $updater.autoInstall).disabled(!updater.autoCheck)
+            }
+        }
+    }
+
+    private var title: String {
+        if let r = updater.available { return "Version \(r.version) is available" }
+        return isBundled ? "Maben Sweep \(updater.currentVersion)" : "Development copy"
+    }
+
+    private var detail: String {
+        switch updater.state {
+        case .idle: return isBundled ? "Not checked yet." : "Updates only work in the installed app."
+        case .checking: return "Checking GitHub…"
+        case .upToDate(let date): return "Up to date. Checked \(date.formatted(.relative(presentation: .named)))."
+        case .available: return updater.canInstall ? "Installs in a few seconds, then restarts." : "Move the app to Applications to update."
+        case .downloading(_, let p): return "Downloading… \(Int(p * 100))%"
+        case .installing: return "Installing. Maben Sweep restarts in a moment."
+        case .failed(let message): return message
+        }
+    }
+
+    @ViewBuilder private var trailing: some View {
+        switch updater.state {
+        case .available(let release):
+            Button("What's new") { showNotes.toggle() }
+                .buttonStyle(.mbQuiet)
+                .popover(isPresented: $showNotes, arrowEdge: .bottom) { ReleaseNotes(release: release) }
+            Button("Update") { updater.install() }.buttonStyle(.mbPrimary).disabled(!updater.canInstall)
+        case .checking, .downloading, .installing:
+            ProgressView().controlSize(.small)
+        default:
+            Button("Check now") { updater.check(userInitiated: true) }.buttonStyle(.mbQuiet).disabled(!isBundled)
+        }
+    }
+}
+
+private struct ReleaseNotes: View {
+    let release: Updater.Release
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Maben Sweep \(release.version)").font(.system(size: 13, weight: .semibold))
+            ScrollView {
+                Text((try? AttributedString(markdown: release.notes, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+                     ?? AttributedString(release.notes))
+                    .font(.system(size: 12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 220)
+            Link("Open on GitHub", destination: release.page).font(.system(size: 12))
+        }
+        .frame(width: 320)
+        .padding(16)
     }
 }
 

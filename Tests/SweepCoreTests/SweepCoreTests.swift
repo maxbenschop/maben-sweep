@@ -619,3 +619,31 @@ final class SweepCoreTests: XCTestCase {
         }
     }
 }
+
+final class ReleaseFeedTests: XCTestCase {
+    let sample = #"{"tag_name":"v1.2","draft":false,"prerelease":false,"html_url":"https://github.com/maxbenschop/maben-sweep/releases/tag/v1.2","body":"- Faster scans","assets":[{"name":"Maben-Sweep.dmg","browser_download_url":"https://github.com/a.dmg"},{"name":"Maben-Sweep.zip","browser_download_url":"https://github.com/a.zip"}]}"#
+
+    func testParsesAPublishedRelease() {
+        let release = ReleaseFeed.parse(Data(sample.utf8))
+        XCTAssertEqual(release?.version, "1.2")
+        XCTAssertEqual(release?.zip.absoluteString, "https://github.com/a.zip")
+        XCTAssertEqual(release?.notes, "- Faster scans")
+    }
+
+    func testIgnoresDraftsPrereleasesAndReleasesWithoutTheZip() {
+        for (a, b) in [(#""draft":false"#, #""draft":true"#), (#""prerelease":false"#, #""prerelease":true"#),
+                       ("Maben-Sweep.zip", "Other.zip"), ("https://github.com/a.zip", "http://github.com/a.zip")] {
+            XCTAssertNil(ReleaseFeed.parse(Data(sample.replacingOccurrences(of: a, with: b).utf8)), b)
+        }
+        XCTAssertNil(ReleaseFeed.parse(Data("not json".utf8)))
+    }
+
+    func testVersionOrder() {
+        XCTAssertTrue(ReleaseFeed.isNewer("1.10", than: "1.9"))
+        XCTAssertTrue(ReleaseFeed.isNewer("1.0.1", than: "1.0"))
+        XCTAssertTrue(ReleaseFeed.isNewer("2", than: "1.9.9"))
+        XCTAssertFalse(ReleaseFeed.isNewer("1.0", than: "1.0"))
+        XCTAssertFalse(ReleaseFeed.isNewer("1.0", than: "1.0.0"))
+        XCTAssertFalse(ReleaseFeed.isNewer("0.9", than: "1.0"))
+    }
+}

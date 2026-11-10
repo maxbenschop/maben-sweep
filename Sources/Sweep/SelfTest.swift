@@ -185,6 +185,19 @@ enum SelfTest {
         exit(failures == 0 ? 0 : 1)
     }
 
+    /// `Sweep --verify-update <app> <version>`: runs the updater's checks on an app and prints the result.
+    static func verifyUpdateIfRequested() {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--verify-update"), i + 2 < args.count else { return }
+        do {
+            try Updater.verify(URL(fileURLWithPath: args[i + 1]), expectedVersion: args[i + 2])
+            print("ACCEPTED")
+        } catch {
+            print("REJECTED: \((error as? Updater.Failure)?.message ?? "\(error)")")
+        }
+        exit(0)
+    }
+
     static func check(_ ok: Bool, _ what: String) {
         print((ok ? "  ok    " : "  FAIL  ") + what)
         if !ok { failures += 1 }

@@ -44,6 +44,8 @@ struct MenuView: View {
             .padding(.top, 14)
             .padding(.bottom, 12)
 
+            UpdateNotice()
+
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
@@ -119,6 +121,42 @@ struct MenuView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 6)
             .padding(.vertical, 6)
+    }
+}
+
+/// "Version 1.1 is available" with an Update button, at the top of the menu.
+private struct UpdateNotice: View {
+    @ObservedObject private var updater = Updater.shared
+
+    var body: some View {
+        if let release = updater.available {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(MB.accent).font(.system(size: 15))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Version \(release.version) is available").font(.system(size: 12, weight: .semibold)).foregroundStyle(MB.text)
+                    Text(detail).font(.system(size: 11)).foregroundStyle(MB.muted)
+                }
+                Spacer()
+                if case .available = updater.state {
+                    Button("Update") { updater.install() }.buttonStyle(.mbPrimary).disabled(!updater.canInstall)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(MB.accent.opacity(0.1)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(MB.accent.opacity(0.3)))
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private var detail: String {
+        switch updater.state {
+        case .downloading(_, let p): "Downloading… \(Int(p * 100))%"
+        case .installing: "Installing, restarts in a moment"
+        default: updater.canInstall ? "Installs in a few seconds and restarts" : "Move the app to Applications to update"
+        }
     }
 }
 

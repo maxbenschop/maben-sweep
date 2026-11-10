@@ -6,11 +6,13 @@ import SweepCore
 struct SweepApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model: AppModel
+    @ObservedObject private var updater = Updater.shared
 
     init() {
         #if DEBUG
         Snapshot.runIfRequested()   // exits; never starts the real app
         SelfTest.runIfRequested()   // exits
+        SelfTest.verifyUpdateIfRequested()   // exits
         if !CommandLine.arguments.contains("--demo") { Instance.ensureSingle() }
         #else
         Instance.ensureSingle()     // may exit: the running copy shows its window instead
@@ -23,7 +25,8 @@ struct SweepApp: App {
             MenuView(open: { MainWindowController.shared.show($0) })
                 .environmentObject(model)
         } label: {
-            Image(nsImage: MenuIcon.image(dot: model.nextCleanup != nil))
+            // Sweep cyan while an update is waiting, as Maben Awake turns green.
+            Image(nsImage: MenuIcon.image(dot: model.nextCleanup != nil, tint: updater.available == nil ? nil : MenuIcon.updateTint))
                 .accessibilityLabel("Maben Sweep")
         }
         .menuBarExtraStyle(.window)
@@ -39,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             guard FirstRun.checkLocation() else { return }
             AppModel.shared.start()
+            Updater.shared.start()
             // Opened by hand: show the window. Started at login: stay in the menu bar.
             if !FirstRun.launchedAtLogin, !CommandLine.arguments.contains("--no-window") { MainWindowController.shared.show() }
         }

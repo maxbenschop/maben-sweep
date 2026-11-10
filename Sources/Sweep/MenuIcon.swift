@@ -5,9 +5,13 @@ import SwiftUI
 /// A template image, so macOS tints it for light and dark menu bars.
 enum MenuIcon {
     /// - Parameter dot: a small dot at the top right, shown while a cleanup is scheduled.
-    static func image(size: CGFloat = 18, dot: Bool = false) -> NSImage {
+    /// Sweep cyan, for the menu bar icon while an update is waiting.
+    static let updateTint = NSColor(srgbRed: 0x3C / 255, green: 0xD3 / 255, blue: 0xF0 / 255, alpha: 1)
+
+    /// `tint`: draw in that colour instead of as a template.
+    static func image(size: CGFloat = 18, dot: Bool = false, tint: NSColor? = nil) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { _ in
-            NSColor.black.set()
+            (tint ?? NSColor.black).set()
             let s = size / 18
             let turn = NSAffineTransform()
             turn.translateX(by: 10.3 * s, yBy: 9.4 * s)
@@ -33,7 +37,7 @@ enum MenuIcon {
             }
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = tint == nil
         return image
     }
 }

@@ -5,7 +5,7 @@ build output, caches) from projects you have stopped working on. It never touche
 doesn't come back with one command.
 
 Part of [Maben](https://maben.gg). Product colour: Sweep cyan `#3CD3F0` with a black mark.
-Bundle ID `gg.maben.sweep`, macOS 13+. The website lives in `../sweep-site/` (not live yet).
+Bundle ID `gg.maben.sweep`, macOS 13+. Website: sweep.maben.gg (generator in `../sweep-site-src/`). MIT licence.
 
 ## Build
 
@@ -51,6 +51,7 @@ lead to removing something that changed since.
 | Move to the Trash | Off (deleted right away) |
 | Low disk space warning | On, below 20 GB |
 | Open at login | Off; turned on when automatic cleanup is turned on |
+| Check for and install updates | On (stored in `UserDefaults`, keys `updates.autoCheck` / `updates.autoInstall`) |
 
 Settings, the schedule, the history and the last scan are JSON files in
 `~/Library/Application Support/Maben Sweep/`.
@@ -67,10 +68,11 @@ Settings, the schedule, the history and the last scan are JSON files in
 ## Tests
 
 ```sh
-swift test                                             # the core: 42 tests
+swift test                                             # the core: 45 tests
 .build/debug/Sweep --selftest <empty folder>           # the app's own model, end to end, on throwaway projects
 .build/debug/Sweep --snapshot <folder>                 # PNGs of the menu and every page, with demo data
 .build/debug/SweepTool scan ~/Documents                # read-only look at real projects
+.build/debug/Sweep --verify-update <app> <version>     # the updater's signature and notarization checks
 ```
 
 The self-test and the snapshots only exist in debug builds.
@@ -83,5 +85,14 @@ account in Xcode (needs [xcodegen](https://github.com/yonaskolb/XcodeGen)). For 
 `CFBundleShortVersionString` in `Info.plist` and add a `## <version> · <date>` section to
 `CHANGELOG.md`.
 
-Not built yet: updating itself (Maben Awake's updater reads public GitHub releases; this repository
-is private for now).
+Then `./publish.sh` tags the commit, creates the GitHub release (notes from `CHANGELOG.md`) and rebuilds and
+deploys sweep.maben.gg. See `CONTRIBUTING.md` for branches, pull requests and the rules on `main`.
+
+## Updates
+
+The app updates itself from GitHub Releases (`Sources/Sweep/Updater.swift`), the same way Maben Awake does: at
+start, every 6 hours and after waking it asks the GitHub API for the latest release, downloads
+`Maben-Sweep.zip`, and only installs it if the app inside is signed with the Developer ID of team NJTYRVLSA8 with
+bundle ID `gg.maben.sweep`, accepted by Gatekeeper, and has the announced version. It waits until no scan or
+cleanup is running; the old app goes to the Trash. Both switches (check, install) are on by default, under About.
+This is the only network request the app makes.

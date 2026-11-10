@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (debug)
+        run: swift build
+      - name: Build (release)
+        run: swift build -c release
+      - name: Core tests (real git repositories in a temporary folder)
+        run: swift test
+      - name: App self-test (scan, warning, automatic cleanup, history, settings)
+        run: |
+          git config --global user.name ci && git config --global user.email ci@example.com
+          dir=$(mktemp -d)
+          .build/debug/Sweep --selftest "$dir"
+      - name: Scripts parse
+        run: |
+          zsh -n release.sh
+          zsh -n publish.sh
+          sh -n build.sh
+      - name: Version has a changelog entry
+        run: |
+          VERSION=$(plutil -extract CFBundleShortVersionString raw Info.plist)
+          grep -q "^## $VERSION " CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }

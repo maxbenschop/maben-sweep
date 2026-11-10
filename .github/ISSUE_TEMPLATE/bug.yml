@@ -1,0 +1,30 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: If Sweep removed something it shouldn't have, or won't clean something it should, name the folder and say what its row in Projects shows.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Maben Sweep version
+      description: About, in the Sweep window
+      placeholder: "1.0"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: macOS 15.5, MacBook Air M3
+  - type: textarea
+    id: scan
+    attributes:
+      label: Scan output
+      description: Optional. Output of `SweepTool scan <folder>` for the project (see the README). Remove anything private.
+      render: text
