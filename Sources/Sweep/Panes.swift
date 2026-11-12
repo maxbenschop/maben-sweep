@@ -115,6 +115,7 @@ struct ProjectsPane: View {
                     HStack(spacing: 8) {
                         MBSearchField(placeholder: "Search projects", text: $search)
                         MBSegmented(options: Filter.allCases, selection: $filter) { $0.rawValue }
+                        ReviewAsksButton()
                     }
                     MBSection {
                         if rows.isEmpty {
@@ -156,6 +157,27 @@ struct ProjectsPane: View {
         if !search.isEmpty { return "No projects match \u{201C}\(search)\u{201D}" }
         if filter == .idle { return "No idle projects. Nothing to clean." }
         return model.settings.roots.isEmpty ? "Add a folder under Folders to get started." : "No projects with removable folders found."
+    }
+}
+
+/// Opens one list of every folder that asks first, so they can go together instead of one Remove at a time.
+private struct ReviewAsksButton: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var reviewing = false
+
+    var body: some View {
+        let asking = model.askingProjects
+        if !asking.isEmpty {
+            let folders = asking.reduce(0) { $0 + $1.askArtifacts.count }
+            Button("Review asks (\(folders))") { reviewing = true }
+                .buttonStyle(.mbQuiet)
+                .fixedSize()
+                .help("\(folders) \(folders == 1 ? "folder" : "folders") in \(asking.count) \(asking.count == 1 ? "project" : "projects") "
+                      + "only go when you OK them. Tick them and remove them in one go.")
+                .sheet(isPresented: $reviewing) {
+                    AskReview(projects: asking, chosen: model.preselectedAsks(in: asking)).environmentObject(model)
+                }
+        }
     }
 }
 
@@ -253,6 +275,7 @@ private struct ProjectRow: View {
     let toggle: () -> Void
     @State private var hovering = false
     @State private var confirm = false
+    @State private var reviewing = false
 
     var body: some View {
         let status = model.status(of: project)
@@ -296,6 +319,13 @@ private struct ProjectRow: View {
                     .help(pillHelp(status))
                 if busy {
                     ProgressView().controlSize(.small).frame(width: 52)
+                } else if safe <= 0, !project.askArtifacts.isEmpty {
+                    // Nothing safe, but folders that ask: remove them together from one list.
+                    Button("Review") { reviewing = true }
+                        .buttonStyle(.mbQuiet)
+                        .disabled(status == .inUse)
+                        .help(status == .inUse ? "A program is running in this project."
+                              : "Choose which of these folders to remove: \(project.askArtifacts.first?.reason?.lowercased() ?? "they ask first")")
                 } else {
                     Button("Clean") { confirm = true }
                         .buttonStyle(isIdle(status) ? MBButtonStyle(kind: .primary) : MBButtonStyle(kind: .quiet))
@@ -312,6 +342,10 @@ private struct ProjectRow: View {
             .onHover { hovering = $0 }
 
             if expanded { ProjectDetail(project: project) }
+        }
+        .sheet(isPresented: $reviewing) {
+            AskReview(projects: [project], chosen: Set(project.askArtifacts.filter { $0.kind != .environment }.map(\.path)))
+                .environmentObject(model)
         }
         .confirmationDialog("Clean \(project.name)?", isPresented: $confirm) {
             Button("Remove \(Format.bytes(safe))") { model.clean(project) }

@@ -28,8 +28,9 @@ A folder is only removed when every check passes (`Sources/SweepCore/Safety.swif
 4. Dependencies have a lockfile, so a reinstall gives the same versions.
 
 That gives three tiers. **Safe** is cleaned automatically. **Ask** (no lockfile, not in git, not
-ignored, Python environments) is only removed with its own Remove button. **Never** (git tracks a
-file inside it, or anything not on the list) isn't shown at all.
+ignored, Python environments) is never cleaned automatically, only when you tick it: one folder at a
+time with its Remove button, or many at once under Review asks. **Never** (git tracks a file inside it,
+or anything not on the list) isn't shown at all.
 
 A project counts as idle from the newest of: the last commit on any branch, the last change to a
 file outside the removable folders, git activity (checkout, pull, an editor refreshing the index),
