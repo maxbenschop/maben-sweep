@@ -29,6 +29,8 @@ enum Demo {
             project("dashboard", ["Node"], idle: 2, [("node_modules", .dependencies, 852, .safe, nil, "pnpm install"), (".next", .build, 340, .safe, nil, nil)], source: .agent),
             project("menu-bar-app", ["Swift"], idle: 0, [(".build", .build, 733, .safe, nil, "swift build")], inUse: true),
             project("old-prototype", ["Node"], idle: 390, [("node_modules", .dependencies, 301, .ask, "No lockfile, so a reinstall may give other versions", nil)]),
+            project("bookkeeping-app", ["Node"], idle: 395, [("node_modules", .dependencies, 593, .ask, "The project isn't in git", "npm install"), (".next", .build, 59, .ask, "The project isn't in git", nil)], git: false),
+            project("Catalog.Api", [".NET"], idle: 14, [("bin", .build, 41, .ask, "The project isn't in git", "dotnet build"), ("obj", .build, 30, .ask, "The project isn't in git", "dotnet build")], git: false),
             project("client-site", ["PHP"], idle: 120, [("vendor", .dependencies, 64, .safe, nil, "composer install")]),
         ]
         var settings = SweepSettings()
@@ -100,6 +102,7 @@ enum Snapshot {
             }
             window.orderOut(nil)
         }
+        render(AskReview(projects: on.askingProjects, chosen: on.preselectedAsks(in: on.askingProjects)).environmentObject(on), "ask-review", dir)
         for (size, dot) in [(CGFloat(18), false), (18, true), (144, false)] {
             let image = MenuIcon.image(size: size, dot: dot)
             let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size) * 2, pixelsHigh: Int(size) * 2, bitsPerSample: 8,

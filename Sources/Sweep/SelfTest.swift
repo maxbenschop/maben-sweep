@@ -140,6 +140,31 @@ enum SelfTest {
         check(!exists("no-lock/node_modules"), "Remove takes the folder that asks first")
         check(model.history.count == 3 && model.history.first?.automatic == false, "both show in the history as done by hand")
 
+        // 5b. Projects that aren't in git: every folder asks first; the review removes them together.
+        for name in ["loose-a", "loose-b"] {
+            write(name + "/package.json", "{}")
+            write(name + "/package-lock.json", "{}")
+            write(name + "/src/index.js", "console.log(1)")
+            write(name + "/node_modules/pkg/index.js", String(repeating: "a", count: 200_000))
+            write(name + "/.next/cache/data", String(repeating: "b", count: 200_000))
+            let old = Date().addingTimeInterval(-300 * 86_400)
+            var paths = [projects + "/" + name]
+            for case let p as String in fm.enumerator(atPath: projects + "/" + name)! { paths.append(projects + "/" + name + "/" + p) }
+            for path in paths { try? fm.setAttributes([.modificationDate: old], ofItemAtPath: path) }
+        }
+        model.scan()
+        wait("scan with loose projects") { !model.scanning }
+        let loose = model.askingProjects.filter { $0.name.hasPrefix("loose-") }
+        check(loose.count == 2 && loose.allSatisfy { !$0.isGit && $0.askArtifacts.count == 2 }, "projects outside git ask first for every folder")
+        check(model.preselectedAsks(in: loose).count == 4, "the review starts with all four folders ticked")
+        let historyBefore = model.history.count
+        model.removeChosen(loose.flatMap(\.askArtifacts))
+        wait("remove from the review") { model.busy.isEmpty && !exists("loose-a/node_modules") && !exists("loose-b/.next") }
+        check(["loose-a/node_modules", "loose-a/.next", "loose-b/node_modules", "loose-b/.next"].allSatisfy { !exists($0) }, "one click removes them in both projects")
+        check(["loose-a/package.json", "loose-a/src/index.js", "loose-b/package-lock.json"].allSatisfy(exists), "their source is kept")
+        check(model.history.count == historyBefore + 2, "one history entry per project")
+        check(model.askingProjects.allSatisfy { !$0.name.hasPrefix("loose-") }, "nothing is left to review in them")
+
         // 6. Keep, never clean, and a project's own idle time.
         model.settings.automatic = false
         check(model.state.pending.isEmpty, "turning automatic off clears the schedule")

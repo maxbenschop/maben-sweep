@@ -93,6 +93,28 @@ final class AppModel: ObservableObject {
     }
 
     var dueBytes: Int64 { dueProjects.reduce(0) { $0 + $1.safeBytes(kinds: settings.kinds) } }
+
+    /// Projects with folders that are only removed on a click, for reviewing them in one go.
+    /// Pinned projects and projects in use are left out; idle ones come first, biggest first.
+    var askingProjects: [Project] {
+        projects.filter { !$0.askArtifacts.isEmpty && !$0.inUse && !state.pinned.contains($0.path) }
+            .sorted { a, b in
+                let ia = isIdle(a), ib = isIdle(b)
+                return ia != ib ? ia : a.askArtifacts.reduce(0) { $0 + $1.bytes } > b.askArtifacts.reduce(0) { $0 + $1.bytes }
+            }
+    }
+
+    /// Unused for at least its idle period, whether or not it has anything safe in it.
+    func isIdle(_ project: Project) -> Bool {
+        Format.days(since: Planner.effectiveActivity(of: project, state: state))
+            >= Planner.threshold(for: project, settings: settings, state: state)
+    }
+
+    /// What the review starts with ticked: folders in idle projects, except Python environments,
+    /// which can hold packages installed by hand.
+    func preselectedAsks(in projects: [Project]) -> Set<String> {
+        Set(projects.filter(isIdle).flatMap(\.askArtifacts).filter { $0.kind != .environment }.map(\.path))
+    }
     var totalFreed: Int64 { history.reduce(0) { $0 + $1.bytes } }
     var nextCleanup: Date? { settings.automatic ? state.pending.values.min() : nil }
     var hasScanned: Bool { state.lastScan != nil }
@@ -157,6 +179,14 @@ final class AppModel: ObservableObject {
     /// Cleans one project on a click. `artifacts` nil means everything safe in it.
     func clean(_ project: Project, artifacts: [Artifact]? = nil, allowAsk: Bool = false) {
         clean([project], artifacts: artifacts, allowAsk: allowAsk, automatic: false)
+    }
+
+    /// Removes folders the user ticked themselves, across any number of projects. Folders that ask
+    /// first are allowed; each one is still checked again right before it goes.
+    func removeChosen(_ artifacts: [Artifact]) {
+        let paths = Set(artifacts.map(\.path))
+        let targets = projects.filter { $0.artifacts.contains { paths.contains($0.path) } }
+        clean(targets, artifacts: artifacts, allowAsk: true, automatic: false)
     }
 
     func cleanAllDue() {
