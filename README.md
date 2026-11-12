@@ -5,7 +5,7 @@ build output, caches) from projects you have stopped working on. It never touche
 doesn't come back with one command.
 
 Part of [Maben](https://maben.gg). Product colour: Sweep cyan `#3CD3F0` with a black mark.
-Bundle ID `gg.maben.sweep`, macOS 13+. Website: sweep.maben.gg (generator in `../sweep-site-src/`). MIT licence.
+Bundle ID `gg.maben.sweep`, macOS 13+. Website: sweep.maben.gg (generator in `../maben/sweep-site-src/`). MIT licence.
 
 ## Build
 

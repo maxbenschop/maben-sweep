@@ -6,7 +6,7 @@
 #      -> every installed copy sees it within 6 hours and updates itself
 #   4. rebuilds and deploys sweep.maben.gg (version, changelog). Its download buttons point at
 #      releases/latest, so they serve the new version as soon as step 3 is done.
-# Needs: gh (logged in as a maintainer), and the website generator in .. for step 4 (skipped if missing).
+# Needs: gh (logged in as a maintainer), and the website generator in ../maben for step 4 (skipped if missing).
 set -e
 cd "$(dirname "$0")"
 VERSION=$(plutil -extract CFBundleShortVersionString raw Info.plist)
@@ -37,7 +37,7 @@ gh release create "$TAG" "$DMG" "$ZIP" --title "Maben Sweep $VERSION" --notes-fi
 rm -f "$NOTES"
 echo "GitHub release $TAG is live. Installed copies update within 6 hours."
 
-SITE=..
+SITE=../maben
 if [[ -f $SITE/sweep-site-src/build.py ]]; then
   python3 - "$SITE/sweep-site-src/release.json" "$VERSION" <<'PY'
 import json, sys, datetime
