@@ -3,6 +3,10 @@
 Every release of Maben Sweep. The newest version is at the top. `publish.sh` uses the section for the version it
 releases as the GitHub release notes, the app shows it under About, and sweep.maben.gg/changelog is built from this file.
 
+## 1.1.1 · 19 November 2026
+
+- The app icon keeps its colour with the Dark icon style on macOS 26 and later (it showed as a black square): a cyan mark on black in Dark, and its own tinted and clear versions.
+
 ## 1.1 · 12 November 2026
 
 - Review asks on Projects lists every folder that asks first, such as the ones in projects that aren't in git, with a tick each. Remove them all in one go instead of one Remove and one confirmation per folder. Folders in idle projects start ticked, Python environments don't.

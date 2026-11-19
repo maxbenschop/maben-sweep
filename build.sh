@@ -22,6 +22,14 @@ if [ ! -f build/AppIcon.icns ] || [ Resources/make-icon.swift -nt build/AppIcon.
     done
     iconutil -c icns build/AppIcon.iconset -o build/AppIcon.icns
 fi
+# macOS 26 and later: the layered icon (product colour in light, a coloured mark on black in dark, tinted and
+# clear). Without it, the Dark icon style turns the flat icon above black. AppIcon.icns stays for older macOS.
+if [ ! -f build/icon/Assets.car ] || [ -n "$(find Resources/AppIcon.icon -newer build/icon/Assets.car)" ]; then
+    rm -rf build/icon && mkdir -p build/icon
+    xcrun actool "$PWD/Resources/AppIcon.icon" --compile "$PWD/build/icon" --platform macosx --minimum-deployment-target 13.0 \
+        --app-icon AppIcon --output-partial-info-plist "$PWD/build/icon/partial.plist" >/dev/null
+    rm build/icon/AppIcon.icns build/icon/partial.plist
+fi
 
 APP="build/Maben Sweep.app"
 [ "$CONFIG" = "debug" ] && APP="build/demo/Maben Sweep.app"
@@ -31,7 +39,7 @@ cp "$BIN" "$APP/Contents/MacOS/Sweep"
 cp Info.plist "$APP/Contents/Info.plist"
 # Unique build number per build: macOS only refreshes its login-item record when the version changes.
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M%S)" "$APP/Contents/Info.plist"
-cp build/AppIcon.icns CHANGELOG.md "$APP/Contents/Resources/"
+cp build/AppIcon.icns build/icon/Assets.car CHANGELOG.md "$APP/Contents/Resources/"
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 echo "Built $APP"
 
