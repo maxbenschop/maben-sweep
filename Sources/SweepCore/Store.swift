@@ -61,8 +61,47 @@ public final class Store: @unchecked Sendable {
     }
 
     public var state: SweepState {
-        get { load("state", default: SweepState()) }
+        get { loadState().state }
         set { save(newValue, "state") }
+    }
+
+    /// The saved state, and whether it could be read. When it couldn't (not JSON, or a damaged
+    /// "never clean" list), the broken file is kept next to it as `state.corrupt-<date>.json` and
+    /// `damaged` is true: projects marked "never clean" may be missing from what comes back, so
+    /// the caller has to switch automatic cleanup off and say so. What can still be read is kept,
+    /// and one damaged field elsewhere in the file only loses that field.
+    public func loadState() -> (state: SweepState, damaged: Bool) {
+        let file = url("state")
+        guard FileManager.default.fileExists(atPath: file.path) else { return (SweepState(), false) }
+        if let data = try? Data(contentsOf: file), let state = try? Self.decoder.decode(SweepState.self, from: data) {
+            return (state, false)
+        }
+        var state = SweepState()
+        if let data = try? Data(contentsOf: file), let stored = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            // Save what is still readable: the pins that are text, and every other field that decodes.
+            var rest = stored
+            rest["pinned"] = nil
+            if let restData = try? JSONSerialization.data(withJSONObject: rest),
+               let salvaged = try? Self.decoder.decode(SweepState.self, from: restData) { state = salvaged }
+            state.pinned = Set((stored["pinned"] as? [Any] ?? []).compactMap { $0 as? String })
+        }
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.dateFormat = "yyyy-MM-dd-HHmmss"
+        let aside = directory.appendingPathComponent("state.corrupt-\(stamp.string(from: Date())).json")
+        // Moved, so the next start finds the state written below and doesn't report this again.
+        if (try? FileManager.default.moveItem(at: file, to: aside)) == nil { try? FileManager.default.removeItem(at: file) }
+        state.pending = [:]
+        state.recovery = "Sweep's saved list of projects that are never cleaned couldn't be read, so automatic cleanup was switched off. "
+            + "Check Never cleaned under Folders, then switch it on again under Cleanup. The unreadable file is kept as \(aside.lastPathComponent)."
+        save(state, "state")
+        // Done here and not left to the caller, so no caller can forget it.
+        if !isNew {
+            var settings = settings
+            settings.automatic = false
+            self.settings = settings
+        }
+        return (state, true)
     }
 
     public var history: [HistoryEntry] {

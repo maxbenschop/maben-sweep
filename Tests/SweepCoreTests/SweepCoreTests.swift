@@ -10,8 +10,8 @@ final class SweepCoreTests: XCTestCase {
     let emptyIndex = ActivityIndex()
 
     override func setUpWithError() throws {
-        let base = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath()
-        root = base.appendingPathComponent("sweep-tests-" + UUID().uuidString).path
+        // Spelled as the disk has it (`/private/var/…`), like the paths the scanner reports.
+        root = Paths.canonical(NSTemporaryDirectory()) + "/sweep-tests-" + UUID().uuidString
         try fm.createDirectory(atPath: root, withIntermediateDirectories: true)
     }
 
@@ -272,6 +272,56 @@ final class SweepCoreTests: XCTestCase {
         try fm.linkItem(atPath: file, toPath: root + "/store/copy2.bin")
         XCTAssertLessThan(DiskSize.of(root + "/store"), single + 100_000)
         XCTAssertGreaterThan(single, 300_000)
+    }
+
+    func testAHardLinkWithANameOutsideTheFolderIsNotCounted() throws {
+        let file = write("store/big.bin", String(repeating: "z", count: 400_000))
+        try fm.createDirectory(atPath: root + "/site/node_modules", withIntermediateDirectories: true)
+        try fm.linkItem(atPath: file, toPath: root + "/site/node_modules/big.bin")
+        XCTAssertLessThan(DiskSize.of(root + "/site/node_modules"), 100_000)
+        // Once the folder has the only name left, deleting it frees the file.
+        try fm.removeItem(atPath: file)
+        XCTAssertGreaterThan(DiskSize.of(root + "/site/node_modules"), 300_000)
+    }
+
+    /// An APFS clone of `file` at `path` (how pnpm and Bun copy a package out of their store).
+    func clone(_ file: String, to path: String) throws {
+        try fm.createDirectory(atPath: (root + "/" + path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try XCTSkipIf(clonefile(file, root + "/" + path, 0) != 0, "The temporary folder isn't on a disk that can clone files.")
+        sync()
+    }
+
+    func testACloneOfAFileOutsideTheFolderIsNotCounted() throws {
+        let file = write("store/big.bin", String(repeating: "z", count: 400_000))
+        try clone(file, to: "site/node_modules/big.bin")
+        write("site/node_modules/own.bin", String(repeating: "y", count: 400_000))
+        let size = DiskSize.of(root + "/site/node_modules")
+        XCTAssertGreaterThan(size, 300_000)
+        XCTAssertLessThan(size, 500_000)
+        // With the store gone the folder has the only copy, so deleting it frees both files.
+        try fm.removeItem(atPath: file)
+        sync()
+        XCTAssertGreaterThan(DiskSize.of(root + "/site/node_modules"), 700_000)
+    }
+
+    func testClonesInsideTheFolderAreCountedOnce() throws {
+        let file = write("build/big.bin", String(repeating: "z", count: 400_000))
+        try clone(file, to: "build/copy1.bin")
+        try clone(file, to: "build/copy2.bin")
+        let size = DiskSize.of(root + "/build")
+        XCTAssertGreaterThan(size, 300_000)
+        XCTAssertLessThan(size, 500_000)
+    }
+
+    func testASizeMeasuredTheOldWayIsMeasuredAgain() {
+        nodeProject(committed: Date().addingTimeInterval(-100 * 86_400))
+        let scanner = ProjectScanner(roots: [root])
+        var sizes = scanner.scan().sizes
+        XCTAssertFalse(sizes.isEmpty)
+        for key in sizes.keys { sizes[key]!.bytes = 123; sizes[key]!.method = nil }
+        XCTAssertFalse(scanner.scan(sizes: sizes).projects.flatMap(\.artifacts).contains { $0.bytes == 123 })
+        for key in sizes.keys { sizes[key]!.method = DiskSize.method }
+        XCTAssertTrue(scanner.scan(sizes: sizes).projects.flatMap(\.artifacts).contains { $0.bytes == 123 })
     }
 
     // MARK: - Activity
@@ -621,18 +671,21 @@ final class SweepCoreTests: XCTestCase {
 }
 
 final class ReleaseFeedTests: XCTestCase {
-    let sample = #"{"tag_name":"v1.2","draft":false,"prerelease":false,"html_url":"https://github.com/maxbenschop/maben-sweep/releases/tag/v1.2","body":"- Faster scans","assets":[{"name":"Maben-Sweep.dmg","browser_download_url":"https://github.com/a.dmg"},{"name":"Maben-Sweep.zip","browser_download_url":"https://github.com/a.zip"}]}"#
+    let sample = #"{"tag_name":"v1.2","draft":false,"prerelease":false,"html_url":"https://github.com/maxbenschop/maben-sweep/releases/tag/v1.2","body":"- Faster scans","assets":[{"name":"Maben-Sweep.dmg","browser_download_url":"https://github.com/maxbenschop/maben-sweep/releases/download/v1.2/Maben-Sweep.dmg"},{"name":"Maben-Sweep.zip","browser_download_url":"https://github.com/maxbenschop/maben-sweep/releases/download/v1.2/Maben-Sweep.zip"}]}"#
+
+    let zip = "https://github.com/maxbenschop/maben-sweep/releases/download/v1.2/Maben-Sweep.zip"
 
     func testParsesAPublishedRelease() {
         let release = ReleaseFeed.parse(Data(sample.utf8))
         XCTAssertEqual(release?.version, "1.2")
-        XCTAssertEqual(release?.zip.absoluteString, "https://github.com/a.zip")
+        XCTAssertEqual(release?.zip.absoluteString, zip)
+        XCTAssertEqual(release?.page.absoluteString, "https://github.com/maxbenschop/maben-sweep/releases/tag/v1.2")
         XCTAssertEqual(release?.notes, "- Faster scans")
     }
 
     func testIgnoresDraftsPrereleasesAndReleasesWithoutTheZip() {
         for (a, b) in [(#""draft":false"#, #""draft":true"#), (#""prerelease":false"#, #""prerelease":true"#),
-                       ("Maben-Sweep.zip", "Other.zip"), ("https://github.com/a.zip", "http://github.com/a.zip")] {
+                       (#""name":"Maben-Sweep.zip""#, #""name":"Other.zip""#), (zip, zip.replacingOccurrences(of: "https:", with: "http:"))] {
             XCTAssertNil(ReleaseFeed.parse(Data(sample.replacingOccurrences(of: a, with: b).utf8)), b)
         }
         XCTAssertNil(ReleaseFeed.parse(Data("not json".utf8)))

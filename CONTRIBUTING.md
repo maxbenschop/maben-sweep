@@ -5,13 +5,13 @@ Thanks for helping. This page explains how changes get from an idea to everyone'
 ## How the code flows
 
 ```
-your fork / branch ──PR──▶ main ──release.sh + publish.sh──▶ tag vX.Y.Z + GitHub release ──▶ every Mac updates itself
+your fork / branch ──PR──▶ main ──ship.sh──▶ tag vX.Y.Z + GitHub release ──▶ every Mac updates itself
 ```
 
 - **`main`** is always releasable. Every change arrives through a pull request.
 - **Branches** are short-lived and named after what they do: `fix/monorepo-lockfile`, `feature/bun-cache`,
   `docs/install-steps`. One topic per branch.
-- **Releases** are tags `vX.Y.Z` on `main`, created only by the maintainer with `publish.sh`. A GitHub release is
+- **Releases** are tags `vX.Y.Z` on `main`, created only by the maintainer with `ship.sh`. A GitHub release is
   what installed copies update to, so nothing reaches users before it's tagged and released.
 
 ## Making a change
@@ -19,7 +19,7 @@ your fork / branch ──PR──▶ main ──release.sh + publish.sh──▶
 1. Fork the repository (or, if you have write access, create a branch).
 2. Build: `swift build`. `./build.sh demo` opens the app on made-up projects without touching your files.
 3. Test: `swift test` for the core, and `.build/debug/Sweep --selftest "$(mktemp -d)"` for the app end to end.
-4. If people will notice the change, add a line under the top section of `CHANGELOG.md`. Don't change the version
+4. If people will notice the change, add a line under `## Unreleased` at the top of `CHANGELOG.md`. Don't change the version
    in `Info.plist`; that happens when releasing.
 5. Open a pull request into `main` and fill in the template.
 
@@ -50,11 +50,21 @@ Tags matching `v*` can only be created, moved or deleted by repository admins, s
 
 ## Releasing (maintainer)
 
-1. Bump `CFBundleShortVersionString` in `Info.plist` (`1.0.1` for fixes, `1.1` for features) and make sure
-   `CHANGELOG.md` has a section `## <version> · <date>`.
-2. Merge to `main`, then on an up-to-date `main`: `./release.sh` (builds, signs, notarizes).
-3. `./publish.sh`: tags `vX.Y.Z`, creates the GitHub release with `Maben-Sweep.dmg` and `Maben-Sweep.zip`, and
-   updates sweep.maben.gg.
+One command, from an up-to-date checkout with everything that should go out in the working tree or on `main`:
+
+```sh
+./ship.sh --check        # shows the version, the notes and what will be committed; changes nothing
+./ship.sh                # the next patch version; or: ./ship.sh minor | major | X.Y.Z
+```
+
+It sets the version in `Info.plist` (`1.1.2` for fixes, `1.2` for features), turns `## Unreleased` in `CHANGELOG.md` into
+`## <version> · <date>`, runs the tests, opens the pull request and merges it when **Build and test** passes,
+runs `./release.sh` (universal build, Developer ID, Apple's notarization) and `./publish.sh` (tag `vX.Y.Z`,
+GitHub release with `Maben-Sweep.dmg` and `Maben-Sweep.zip`, sweep.maben.gg), and at the end downloads the
+published zip and checks it the way an installed copy does. After a failure, fix the cause and run it again.
+
+It needs no passwords: Xcode's signed-in Apple account signs and notarizes, and `gh` is logged in. A published
+release can't be changed (releases are immutable), so a mistake is fixed with the next version.
 
 Installed copies check GitHub at start and every 6 hours, verify the Developer ID signature and Apple's
 notarization, and install while no scan or cleanup is running.

@@ -11,10 +11,22 @@ public enum ReleaseFeed {
         public let version: String
         public let notes: String
         public let zip: URL
+        /// The page to open in the browser: always an `https://github.com/…` address.
         public let page: URL
     }
 
-    /// Nil for anything that isn't a published release with the update file attached.
+    /// This repository's releases, for when the feed names a page that isn't on GitHub.
+    public static let releasesPage = URL(string: "https://github.com/\(repository)/releases")!
+
+    /// An `https://github.com/…` address. What the feed says is only data: the app downloads
+    /// from and opens nothing else, whatever the answer contains. (As in Maben Awake.)
+    static func isOnGitHub(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" && url.host?.lowercased() == "github.com"
+            && url.user == nil && (url.port ?? 443) == 443 && !url.pathComponents.contains("..")
+    }
+
+    /// Nil for anything that isn't a published release with the update file attached. The file
+    /// has to be a download of this repository's releases on github.com, over https.
     public static func parse(_ data: Data) -> Release? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = json["tag_name"] as? String,
@@ -22,11 +34,25 @@ public enum ReleaseFeed {
               let assets = json["assets"] as? [[String: Any]],
               let asset = assets.first(where: { ($0["name"] as? String) == assetName }),
               let zip = (asset["browser_download_url"] as? String).flatMap(URL.init(string:)),
-              zip.scheme == "https",
-              let page = (json["html_url"] as? String).flatMap(URL.init(string:))
+              isOnGitHub(zip), zip.path.hasPrefix("/\(repository)/releases/download/")
         else { return nil }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        // The page is opened in the browser, so it is this repository's own releases page unless
+        // GitHub names another of its pages.
+        let page = (json["html_url"] as? String).flatMap(URL.init(string:)).flatMap { isOnGitHub($0) ? $0 : nil } ?? releasesPage
         return Release(version: version, notes: (json["body"] as? String) ?? "", zip: zip, page: page)
+    }
+
+    /// Release notes for showing: Markdown, where a link only stays a link when it goes to an
+    /// `https` address. Any other link is shown as plain text.
+    public static func attributedNotes(_ notes: String) -> AttributedString {
+        guard var text = try? AttributedString(markdown: notes, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else {
+            return AttributedString(notes)
+        }
+        for run in text.runs {
+            if let link = run.link, link.scheme?.lowercased() != "https" { text[run.range].link = nil }
+        }
+        return text
     }
 
     /// Numeric comparison of dotted versions: 1.10 > 1.9, 1.0.1 > 1.0.

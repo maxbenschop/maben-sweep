@@ -44,7 +44,8 @@ enum Instance {
     }
 }
 
-/// The three notifications Sweep sends: a warning before a cleanup, the result, and low disk space.
+/// The notifications Sweep sends: a warning before a cleanup, the result, low disk space, and
+/// (once) that its saved state couldn't be read.
 @MainActor
 enum Notifier {
     private static let delegate = Delegate()
@@ -89,6 +90,13 @@ enum Notifier {
         send(id: "lowdisk", category: nil,
              title: "Only \(Format.bytes(free)) of disk space left",
              body: "Sweep can free \(Format.bytes(reclaimable)) from idle projects.")
+    }
+
+    /// The saved state couldn't be read at launch. The same text stays in the window until dismissed.
+    static func stateUnreadable() {
+        send(id: "state", category: nil,
+             title: "Automatic cleanup was switched off",
+             body: "Sweep couldn't read its list of projects that are never cleaned. Open Maben Sweep to check it.")
     }
 
     private static func send(id: String, category: String?, title: String, body: String) {

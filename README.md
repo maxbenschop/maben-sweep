@@ -24,18 +24,26 @@ A folder is only removed when every check passes (`Sources/SweepCore/Safety.swif
 1. Its name is on the list in `Rules.swift`, and the file that proves which tool made it sits next
    to it (`node_modules` beside a `package.json`, `target` beside a `Cargo.toml`).
 2. It is a real folder inside the project. Symlinks are never followed.
-3. In a git repository: git tracks nothing inside it, and a `.gitignore` rule covers it.
+3. In a git repository: git tracks nothing inside it, a `.gitignore` rule covers it, and git tracks
+   the file from check 1 (a project that was never committed has nothing to rebuild from).
 4. Dependencies have a lockfile, so a reinstall gives the same versions.
+5. A folder with an everyday name (`dist`, `build`, `out`, `vendor`, `bin`…) shows that its tool made
+   it: it holds what the tool leaves behind, or the project's build files name it as output.
+6. No git repository anywhere inside it, other than a dependency a package manager checked out
+   itself and nobody changed.
 
 That gives three tiers. **Safe** is cleaned automatically. **Ask** (no lockfile, not in git, not
-ignored, Python environments) is never cleaned automatically, only when you tick it: one folder at a
-time with its Remove button, or many at once under Review asks. **Never** (git tracks a file inside it,
-or anything not on the list) isn't shown at all.
+ignored, one of checks 5 and 6 missing, Python environments) is never cleaned automatically, only
+when you tick it: one folder at a time with its Remove button, or many at once under Review asks.
+**Never** (git tracks a file inside it, or anything not on the list) isn't shown at all.
+
+Git is only asked read-only questions, in a way that keeps a scanned folder's own git settings from
+running a program or fetching anything (`Git.swift`).
 
 A project counts as idle from the newest of: the last commit on any branch, the last change to a
 file outside the removable folders, git activity (checkout, pull, an editor refreshing the index),
-the last Claude Code or Codex session in it, and the last install or build. A project with a
-running program in it is never cleaned.
+the last Claude Code or Codex session in it, the last install or build, and the last time a program
+was seen running in it. A project with a running program in it is never cleaned.
 
 Every folder is checked again at the moment it is removed (`Cleaner.swift`), so an old scan can't
 lead to removing something that changed since.

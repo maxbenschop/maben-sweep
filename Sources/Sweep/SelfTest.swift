@@ -2,20 +2,32 @@
 import AppKit
 import SweepCore
 
-/// `Sweep --selftest <empty folder>` (debug builds only): builds throwaway git projects in that
-/// folder and drives the app's own model through a scan, the warning, an automatic cleanup and
-/// the settings, with its data in that folder too. Nothing outside the folder is read or changed.
+/// `Sweep --selftest <folder>` (debug builds only): builds throwaway git projects in that folder,
+/// which has to be empty or not exist yet, and drives the app's own model through a scan, the
+/// warning, an automatic cleanup, cleaning by hand and the settings. The projects it scans and
+/// cleans and the app's saved data are all in that folder.
+///
+/// Outside the folder it reads what any scan reads: the working folders of the running programs,
+/// the dates of the AI agent logs in the home folder (`~/.claude*`, `~/.codex`), git's own
+/// config, and whether the Mac is on power. It changes one thing there: step 7 moves a throwaway
+/// `node_modules` (300 KB) to the Trash and deletes it from the Trash again. Run from a terminal
+/// without Full Disk Access it can't list the Trash; if the Trash then already holds a
+/// `node_modules`, it can't tell which one is its own, leaves it there and says so. It asks for
+/// no notification or login-item permission, because those only exist for the real app bundle.
 @MainActor
 enum SelfTest {
     static var failures = 0
 
     static func runIfRequested() {
         let args = CommandLine.arguments
+        // `--selftest` without a folder falls through and starts the real app, as any unknown option does.
         guard let i = args.firstIndex(of: "--selftest"), i + 1 < args.count else { return }
-        let base = URL(fileURLWithPath: args[i + 1]).resolvingSymlinksInPath().path
+        // Spelled as the disk has it, like the paths the scanner reports.
+        let base = Paths.canonical(args[i + 1])
         let fm = FileManager.default
+        // A folder that doesn't exist yet is made; one with anything in it is refused.
         guard (try? fm.contentsOfDirectory(atPath: base))?.isEmpty ?? true else {
-            print("The self-test needs an empty folder."); exit(2)
+            print("The self-test needs an empty folder, or one that doesn't exist yet."); exit(2)
         }
         _ = NSApplication.shared
         setvbuf(stdout, nil, _IONBF, 0)
@@ -36,6 +48,19 @@ enum SelfTest {
             p.standardOutput = FileHandle.nullDevice
             p.standardError = FileHandle.nullDevice
             try! p.run(); p.waitUntilExit()
+        }
+        /// What plain git prints for the test's own questions (the app's `Git` only asks its fixed ones).
+        func gitOutput(_ arguments: [String], in dir: String) -> String {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: git.binary)
+            p.arguments = ["-C", projects + "/" + dir] + arguments
+            let out = Pipe()
+            p.standardOutput = out
+            p.standardError = FileHandle.nullDevice
+            try! p.run()
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            return String(decoding: data, as: UTF8.self)
         }
         /// A Node project last touched `days` ago.
         func node(_ name: String, days: Double, lockfile: Bool = true) {
@@ -121,7 +146,7 @@ enum SelfTest {
                      "old-site/node_modules/pkg/index.js", "fresh-site/node_modules/pkg/index.js", "no-lock/node_modules/pkg/index.js"] {
             check(exists(kept), "kept \(kept)")
         }
-        check(git.run(["status", "--porcelain"], in: projects + "/older-site").output.isEmpty, "git sees no change in the cleaned project")
+        check(gitOutput(["status", "--porcelain"], in: "older-site").isEmpty, "git sees no change in the cleaned project")
         check(model.history.count == 1 && model.history.first?.automatic == true && model.history.first?.items.count == 2, "one automatic cleanup in the history")
         check(model.history.first?.restoreCommands == ["cd '\(projects)/older-site' && npm install"], "the restore command is kept")
         check(model.totalFreed > 500_000, "freed space is counted (\(model.totalFreed) bytes)")
@@ -156,7 +181,6 @@ enum SelfTest {
         wait("scan with loose projects") { !model.scanning }
         let loose = model.askingProjects.filter { $0.name.hasPrefix("loose-") }
         check(loose.count == 2 && loose.allSatisfy { !$0.isGit && $0.askArtifacts.count == 2 }, "projects outside git ask first for every folder")
-        check(model.preselectedAsks(in: loose).count == 4, "the review starts with all four folders ticked")
         let historyBefore = model.history.count
         model.removeChosen(loose.flatMap(\.askArtifacts))
         wait("remove from the review") { model.busy.isEmpty && !exists("loose-a/node_modules") && !exists("loose-b/.next") }
@@ -185,19 +209,39 @@ enum SelfTest {
         model.settings.kinds = []
         check(model.dueProjects.isEmpty, "with every kind switched off nothing is due")
         model.settings.kinds = [.build]
+        // "Clean idle" looks again at the moment of cleaning: a project that was worked on since the scan stays.
+        node("stale-list", days: 300)
+        model.scan()
+        wait("scan before cleaning all") { !model.scanning }
+        check(model.dueProjects.contains { $0.name == "stale-list" }, "the list shows the project as idle")
+        write("stale-list/src/index.js", "console.log(3)")
         model.cleanAllDue()
         wait("clean build output only") { model.busy.isEmpty && !exists("ancient/.next") }
         check(exists("ancient/node_modules") && !exists("ancient/.next"), "only the kinds switched on are removed")
+        check(exists("stale-list/.next"), "Clean idle leaves a project that was used since the scan")
+        check(model.notice?.contains("stale-list isn't idle any more") ?? false, "and says so")
 
         // 7. Moving to the Trash.
         model.settings.kinds = [.dependencies, .build, .cache]
         model.settings.removal = .trash
-        let before = Set((try? fm.contentsOfDirectory(atPath: NSHomeDirectory() + "/.Trash")) ?? [])
+        let trash = NSHomeDirectory() + "/.Trash"
+        // macOS only lets a program with Full Disk Access list the Trash; any program can look
+        // at a name in it that it knows.
+        let before = (try? fm.contentsOfDirectory(atPath: trash)).map { Set($0) }
+        let plainNameTaken = fm.fileExists(atPath: trash + "/node_modules")
         model.clean(named("ancient")!)
         wait("trash") { model.busy.isEmpty && !exists("ancient/node_modules") }
         check(!exists("ancient/node_modules") && model.history.first?.removal == .trash, "the Trash setting is used")
-        let trashed = Set((try? fm.contentsOfDirectory(atPath: NSHomeDirectory() + "/.Trash")) ?? []).subtracting(before)
-        for name in trashed where name.hasPrefix("node_modules") { try? fm.removeItem(atPath: NSHomeDirectory() + "/.Trash/" + name) }
+        var tidied = false
+        if let before, let after = try? fm.contentsOfDirectory(atPath: trash) {
+            for name in Set(after).subtracting(before) where name.hasPrefix("node_modules") {
+                tidied = (try? fm.removeItem(atPath: trash + "/" + name)) != nil || tidied
+            }
+        } else if !plainNameTaken, fm.fileExists(atPath: trash + "/node_modules/pkg/index.js") {
+            // The Trash held no `node_modules` before, so this one is the test's.
+            tidied = (try? fm.removeItem(atPath: trash + "/node_modules")) != nil
+        }
+        if !tidied { print("  note  the test's node_modules (300 KB) stays in the Trash: this program may not list the Trash to find it") }
 
         // 8. Folders.
         model.addExcluded(projects + "/fresh-site")

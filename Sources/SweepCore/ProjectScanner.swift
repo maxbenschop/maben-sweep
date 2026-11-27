@@ -11,14 +11,12 @@ public struct ProjectScanner: Sendable {
     public var maxDepth = 9
 
     public init(roots: [String], excluded: [String] = [], git: Git? = Git.find(), home: String = NSHomeDirectory()) {
-        self.roots = roots.map { Self.clean($0) }
-        self.excluded = Set(excluded.map { Self.clean($0) })
+        // As the disk spells them, so a project's path is the same string every time and matches
+        // what macOS reports for a running program's folder.
+        self.roots = Paths.canonical(roots)
+        self.excluded = Set(Paths.canonical(excluded))
         self.git = git
         self.home = home
-    }
-
-    static func clean(_ path: String) -> String {
-        URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
     }
 
     /// A folder found while walking, before the checks.
@@ -43,14 +41,17 @@ public struct ProjectScanner: Sendable {
         public var bytes: Int64
         public var modified: Date
         public var measured: Date
+        /// `DiskSize.method` at the time; nil for a size measured before it existed.
+        public var method: Int?
     }
 
     public func scan(index: ActivityIndex? = nil, sizes: SizeCache = [:], now: Date = Date(),
                      progress: (@Sendable (String) -> Void)? = nil) -> (projects: [Project], sizes: SizeCache) {
         var drafts: [Draft] = []
         var visited = Set<String>()
+        let skipped = FolderSet(excluded)
         for root in roots where Safety.isRealDirectory(root) {
-            walk(root, depth: 0, project: nil, drafts: &drafts, visited: &visited, progress: progress)
+            walk(root, depth: 0, project: nil, drafts: &drafts, visited: &visited, skipped: skipped, progress: progress)
         }
         let index = index ?? ActivityIndex.current(home: home)
         let lock = NSLock()
@@ -74,15 +75,16 @@ public struct ProjectScanner: Sendable {
     public func rescan(project path: String, index: ActivityIndex? = nil, now: Date = Date()) -> Project? {
         var drafts: [Draft] = []
         var visited = Set<String>()
+        let path = Paths.canonical(path)
         guard Safety.isRealDirectory(path) else { return nil }
-        walk(path, depth: 0, project: nil, drafts: &drafts, visited: &visited, progress: nil)
+        walk(path, depth: 0, project: nil, drafts: &drafts, visited: &visited, skipped: FolderSet(excluded), progress: nil)
         guard let draft = drafts.first(where: { $0.path == path }) else { return nil }
         return build(draft, index: index ?? ActivityIndex.current(home: home), sizes: [:], now: now)?.0
     }
 
     private func walk(_ dir: String, depth: Int, project: Draft?, drafts: inout [Draft], visited: inout Set<String>,
-                      progress: (@Sendable (String) -> Void)?) {
-        guard !excluded.contains(dir), visited.insert(dir).inserted,
+                      skipped: FolderSet, progress: (@Sendable (String) -> Void)?) {
+        guard !skipped.contains(dir), visited.insert(dir).inserted,
               let entries = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return }
         let names = Set(entries)
         let matching = Rules.ecosystems.filter { $0.matches(names) }
@@ -115,7 +117,7 @@ public struct ProjectScanner: Sendable {
             if name.hasPrefix(".") || Rules.neverDescend.contains(name)
                 || Rules.bundleExtensions.contains((name as NSString).pathExtension.lowercased())
                 || depth + 1 > maxDepth { continue }
-            walk(path, depth: depth + 1, project: current, drafts: &drafts, visited: &visited, progress: progress)
+            walk(path, depth: depth + 1, project: current, drafts: &drafts, visited: &visited, skipped: skipped, progress: progress)
         }
     }
 
@@ -136,12 +138,13 @@ public struct ProjectScanner: Sendable {
             guard verdict.tier != .never else { continue }
             let modified = ActivityIndex.modified(candidate.path) ?? now
             let bytes: Int64
-            if let cached = sizes[candidate.path], cached.modified == modified, now.timeIntervalSince(cached.measured) < 7 * 86_400 {
+            if let cached = sizes[candidate.path], cached.modified == modified, cached.method == DiskSize.method,
+               now.timeIntervalSince(cached.measured) < 7 * 86_400 {
                 bytes = cached.bytes
                 measured[candidate.path] = cached
             } else {
                 bytes = DiskSize.of(candidate.path)
-                measured[candidate.path] = CachedSize(bytes: bytes, modified: modified, measured: now)
+                measured[candidate.path] = CachedSize(bytes: bytes, modified: modified, measured: now, method: DiskSize.method)
             }
             artifacts.append(Artifact(path: candidate.path,
                                       relativePath: String(candidate.path.dropFirst(draft.path.count + 1)),
@@ -151,11 +154,13 @@ public struct ProjectScanner: Sendable {
         }
         guard !artifacts.isEmpty else { return nil }
         let skip = Set(artifacts.map(\.path) + draft.nested)
-        let activity = Activity.last(project: draft.path, isGit: draft.isGit, artifacts: artifacts.map(\.path),
-                                     skip: skip, git: git, index: index)
+        let inUse = index.inUse(draft.path)
+        // A program running in the project is use, even when it only reads: a dev server, a shell, an editor's terminal.
+        let activity = inUse ? (date: now, source: ActivitySource.running)
+            : Activity.last(project: draft.path, isGit: draft.isGit, artifacts: artifacts.map(\.path), skip: skip, git: git, index: index)
         let project = Project(path: draft.path, name: (draft.path as NSString).lastPathComponent, isGit: draft.isGit,
                               ecosystems: draft.ecosystems, artifacts: artifacts.sorted { $0.bytes > $1.bytes },
-                              lastActivity: activity.date, activitySource: activity.source, inUse: index.inUse(draft.path))
+                              lastActivity: activity.date, activitySource: activity.source, inUse: inUse)
         return (project, measured)
     }
 }

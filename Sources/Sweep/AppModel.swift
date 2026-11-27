@@ -54,14 +54,20 @@ final class AppModel: ObservableObject {
     init(store: Store) {
         self.store = store
         let isNew = store.isNew
-        var settings = store.settings
-        if isNew {
-            settings.roots = SweepSettings.defaultRoots()
-            store.settings = settings
-        }
+        // The state first: when it can't be read, the store switches automatic cleanup off.
+        let loaded = store.loadState()
+        let stored = store.settings
+        var settings = stored.canonical()
+        if isNew { settings.roots = SweepSettings.defaultRoots() }
+        if isNew || settings != stored { store.settings = settings }
         self.settings = settings
-        state = store.state
-        projects = store.projects
+        // Paths saved by an earlier version are rewritten the way the disk spells them, so a
+        // project that is never cleaned is still found under that name.
+        let state = loaded.state.canonical()
+        if state != loaded.state { store.state = state }
+        self.state = state
+        projects = store.projects.map { $0.canonical() }
+        if loaded.damaged { Notifier.stateUnreadable() }
         history = store.history
         sizes = store.sizes
         launchAtLogin = LoginItem.isOn
@@ -110,11 +116,6 @@ final class AppModel: ObservableObject {
             >= Planner.threshold(for: project, settings: settings, state: state)
     }
 
-    /// What the review starts with ticked: folders in idle projects, except Python environments,
-    /// which can hold packages installed by hand.
-    func preselectedAsks(in projects: [Project]) -> Set<String> {
-        Set(projects.filter(isIdle).flatMap(\.askArtifacts).filter { $0.kind != .environment }.map(\.path))
-    }
     var totalFreed: Int64 { history.reduce(0) { $0 + $1.bytes } }
     var nextCleanup: Date? { settings.automatic ? state.pending.values.min() : nil }
     var hasScanned: Bool { state.lastScan != nil }
@@ -164,7 +165,13 @@ final class AppModel: ObservableObject {
                 self.sizes = result.sizes
                 self.store?.projects = result.projects
                 self.store?.sizes = result.sizes
-                self.state.lastScan = Date()
+                // Again after every scan: a path on a disk that wasn't connected at launch could
+                // not be spelled as the disk has it then, and a "never clean" mark has to match
+                // the path the scan reports.
+                var state = self.state.canonical()
+                state.lastScan = Date()
+                self.state = state
+                self.noteProjectsInUse(result.projects, forgetOthers: true)
                 self.scanning = false
                 self.scanningPath = nil
                 self.freeSpace = DiskSize.available()
@@ -178,7 +185,7 @@ final class AppModel: ObservableObject {
 
     /// Cleans one project on a click. `artifacts` nil means everything safe in it.
     func clean(_ project: Project, artifacts: [Artifact]? = nil, allowAsk: Bool = false) {
-        clean([project], artifacts: artifacts, allowAsk: allowAsk, automatic: false)
+        clean([project], artifacts: artifacts, allowAsk: allowAsk, automatic: false, onlyIfDue: false)
     }
 
     /// Removes folders the user ticked themselves, across any number of projects. Folders that ask
@@ -186,14 +193,18 @@ final class AppModel: ObservableObject {
     func removeChosen(_ artifacts: [Artifact]) {
         let paths = Set(artifacts.map(\.path))
         let targets = projects.filter { $0.artifacts.contains { paths.contains($0.path) } }
-        clean(targets, artifacts: artifacts, allowAsk: true, automatic: false)
+        clean(targets, artifacts: artifacts, allowAsk: true, automatic: false, onlyIfDue: false)
     }
 
+    /// "Clean idle": every idle project in one go. The list it was pressed on can be hours old,
+    /// so each project has to be idle still at the moment its turn comes.
     func cleanAllDue() {
-        clean(dueProjects, artifacts: nil, allowAsk: false, automatic: false)
+        clean(dueProjects, artifacts: nil, allowAsk: false, automatic: false, onlyIfDue: true)
     }
 
-    private func clean(_ targets: [Project], artifacts: [Artifact]?, allowAsk: Bool, automatic: Bool) {
+    /// - Parameter onlyIfDue: skip a project that turns out not to be idle any more. Off for a
+    ///   project the user picked by itself, which they may clean whenever they like.
+    private func clean(_ targets: [Project], artifacts: [Artifact]?, allowAsk: Bool, automatic: Bool, onlyIfDue: Bool) {
         guard live else { return }
         let targets = targets.filter { !busy.contains($0.path) }
         guard !targets.isEmpty else { return }
@@ -205,10 +216,12 @@ final class AppModel: ObservableObject {
             var entries: [HistoryEntry] = []
             var fresh: [String: Project?] = [:]
             var problems: [String] = []
-            let index = ActivityIndex.current()
+            var index = ActivityIndex.current()
             let cleaner = Cleaner(removal: settings.removal)
             for target in targets {
-                // Look again right now: the list on screen can be hours old.
+                // Look again right now: the list on screen can be hours old, and the project
+                // before this one may have taken minutes.
+                index.workingDirectories = ActivityIndex.workingDirectoriesNow()
                 guard let project = scanner.rescan(project: target.path, index: index) else {
                     fresh[target.path] = .some(nil)
                     continue
@@ -218,8 +231,9 @@ final class AppModel: ObservableObject {
                     fresh[target.path] = project
                     continue
                 }
-                // An automatic run only goes ahead if the project is still idle at this moment.
-                if automatic, !Planner.isDue(project, settings: settings, state: state) {
+                // An automatic run, and "Clean idle", only go ahead if the project is still idle at this moment.
+                if onlyIfDue, !Planner.isDue(project, settings: settings, state: state) {
+                    if !automatic { problems.append("\(project.name) isn't idle any more, so it was left alone.") }
                     fresh[target.path] = project
                     continue
                 }
@@ -290,6 +304,9 @@ final class AppModel: ObservableObject {
     /// Runs every half hour: scans once a day, and cleans what is due if automatic cleanup is on.
     func tick() {
         guard live, !scanning, hasScanned else { return }
+        // Cheap, so it runs on battery too: a project that is only read (a dev server, a shell)
+        // leaves no other trace of being used.
+        noteProjectsInUse(projects, forgetOthers: false)
         if settings.onlyOnPower, !Power.onAC { return }
         let stale = Date().timeIntervalSince(state.lastScan ?? .distantPast) > 24 * 3600
         if stale {
@@ -311,7 +328,22 @@ final class AppModel: ObservableObject {
             Notifier.warn(projects: warned.count, bytes: warned.reduce(0) { $0 + $1.safeBytes(kinds: settings.kinds) }, on: date)
         }
         let targets = projects.filter { plan.clean.contains($0.path) }
-        if !targets.isEmpty { clean(targets, artifacts: nil, allowAsk: false, automatic: true) }
+        if !targets.isEmpty { clean(targets, artifacts: nil, allowAsk: false, automatic: true, onlyIfDue: true) }
+    }
+
+    /// Remembers which projects have a program running in them right now. It counts as activity,
+    /// so the idle period starts again when the program stops, not at the last changed file.
+    /// - Parameter forgetOthers: drop what is remembered about projects that aren't in the list.
+    private func noteProjectsInUse(_ projects: [Project], forgetOthers: Bool) {
+        let running = ActivityIndex(workingDirectories: ActivityIndex.workingDirectoriesNow())
+        var seen = state.lastInUse
+        if forgetOthers {
+            let known = Set(projects.map(\.path))
+            seen = seen.filter { known.contains($0.key) }
+        }
+        let now = Date()
+        for project in projects where project.inUse || running.inUse(project.path) { seen[project.path] = now }
+        if seen != state.lastInUse { state.lastInUse = seen }
     }
 
     private func checkLowDisk() {
@@ -373,26 +405,31 @@ final class AppModel: ObservableObject {
 
     // MARK: - Folders
 
+    // Folders are kept the way the disk spells them (`Paths.canonical`) and compared the way the
+    // disk compares names, so `~/code` and `~/Code` are one folder here when they are one on disk.
+
     func addRoot(_ path: String) {
-        guard !settings.roots.contains(path) else { return }
+        let path = Paths.canonical(path)
+        guard !settings.roots.contains(where: { Paths.same($0, path) }) else { return }
         settings.roots.append(path)
         scan()
     }
 
     func removeRoot(_ path: String) {
-        settings.roots.removeAll { $0 == path }
-        projects.removeAll { $0.path == path || $0.path.hasPrefix(path + "/") }
+        settings.roots.removeAll { Paths.same($0, path) }
+        projects.removeAll { Paths.isInside($0.path, path) }
         store?.projects = projects
     }
 
     func addExcluded(_ path: String) {
-        guard !settings.excluded.contains(path) else { return }
+        let path = Paths.canonical(path)
+        guard !settings.excluded.contains(where: { Paths.same($0, path) }) else { return }
         settings.excluded.append(path)
-        projects.removeAll { $0.path == path || $0.path.hasPrefix(path + "/") }
+        projects.removeAll { Paths.isInside($0.path, path) }
         store?.projects = projects
     }
 
     func removeExcluded(_ path: String) {
-        settings.excluded.removeAll { $0 == path }
+        settings.excluded.removeAll { Paths.same($0, path) }
     }
 }

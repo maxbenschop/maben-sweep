@@ -94,6 +94,9 @@ struct ProjectsPane: View {
             if let notice = model.notice {
                 Notice(text: notice) { model.notice = nil }
             }
+            if let recovery = model.state.recovery {
+                Notice(text: recovery) { model.state.recovery = nil }
+            }
 
             if !model.hasScanned && !model.scanning {
                 Welcome()
@@ -175,7 +178,7 @@ private struct ReviewAsksButton: View {
                 .help("\(folders) \(folders == 1 ? "folder" : "folders") in \(asking.count) \(asking.count == 1 ? "project" : "projects") "
                       + "only go when you OK them. Tick them and remove them in one go.")
                 .sheet(isPresented: $reviewing) {
-                    AskReview(projects: asking, chosen: model.preselectedAsks(in: asking)).environmentObject(model)
+                    AskReview(projects: asking).environmentObject(model)
                 }
         }
     }
@@ -344,8 +347,7 @@ private struct ProjectRow: View {
             if expanded { ProjectDetail(project: project) }
         }
         .sheet(isPresented: $reviewing) {
-            AskReview(projects: [project], chosen: Set(project.askArtifacts.filter { $0.kind != .environment }.map(\.path)))
-                .environmentObject(model)
+            AskReview(projects: [project]).environmentObject(model)
         }
         .confirmationDialog("Clean \(project.name)?", isPresented: $confirm) {
             Button("Remove \(Format.bytes(safe))") { model.clean(project) }
@@ -731,7 +733,7 @@ struct CleanupPane: View {
     var body: some View {
         MBPage(title: "Cleanup", subtitle: Pane.cleanup.subtitle) {
             if model.settings.automatic, model.settings.warnDays > 0, model.notificationsDenied {
-                Notice(text: "Notifications are off for Maben Sweep, so the warning before a cleanup can't be shown. Turn them on in System Settings › Notifications. The date of the next cleanup is always shown under Projects.")
+                Notice(text: "Notifications are off for Maben Sweep, so the warning before a cleanup can't be shown. Idle projects are still cleaned, without a warning, on the date shown under Projects. To get the warning, turn notifications on in System Settings › Notifications.")
             }
             MBSection(title: "Automatic",
                       footer: model.settings.automatic
@@ -863,7 +865,8 @@ struct FoldersPane: View {
     }
 
     private func count(under root: String) -> String {
-        let n = model.projects.filter { $0.path == root || $0.path.hasPrefix(root + "/") }.count
+        let sensitive = Paths.isCaseSensitive(at: root)
+        let n = model.projects.filter { Paths.isInside($0.path, root, caseSensitive: sensitive) }.count
         return model.hasScanned ? "\(n) \(n == 1 ? "project" : "projects") with removable folders" : "Not scanned yet"
     }
 
@@ -1018,8 +1021,7 @@ private struct ReleaseNotes: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Maben Sweep \(release.version)").font(.system(size: 13, weight: .semibold))
             ScrollView {
-                Text((try? AttributedString(markdown: release.notes, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-                     ?? AttributedString(release.notes))
+                Text(ReleaseFeed.attributedNotes(release.notes))
                     .font(.system(size: 12))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

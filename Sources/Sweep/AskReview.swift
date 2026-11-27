@@ -8,12 +8,9 @@ struct AskReview: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let projects: [Project]
-    @State private var chosen: Set<String>
-
-    init(projects: [Project], chosen: Set<String>) {
-        self.projects = projects
-        _chosen = State(initialValue: chosen)
-    }
+    /// Nothing is ticked to begin with: these are the folders Sweep is least sure about, so
+    /// each one that goes is one the user picked.
+    @State private var chosen: Set<String> = []
 
     private var all: [Artifact] { projects.flatMap(\.askArtifacts) }
     private var picked: [Artifact] { all.filter { chosen.contains($0.path) } }
@@ -55,7 +52,7 @@ struct AskReview: View {
                 .disabled(all.isEmpty)
             }
             Text("Sweep can't prove these come back exactly as they were, so they never go automatically. "
-                 + "The reason is under each one. Folders in idle projects start ticked, Python environments don't.")
+                 + "The reason is under each one. Tick the ones you want to remove.")
                 .font(.system(size: 12))
                 .foregroundStyle(MB.muted)
                 .fixedSize(horizontal: false, vertical: true)

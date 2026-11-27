@@ -22,21 +22,29 @@ public struct ActivityIndex: Sendable {
                       codexSessions: codexSessions(home: home))
     }
 
-    /// A program is running from the project folder or below it.
+    /// The running programs as they are right now, for a last look before something is removed.
+    public static func workingDirectoriesNow() -> [String] { Processes.workingDirectories() }
+
+    /// A program is running from the project folder or below it. Compared the way the disk
+    /// compares names, so `~/code/site` is seen for a project stored as `~/Code/site`.
     public func inUse(_ project: String) -> Bool {
-        workingDirectories.contains { $0 == project || $0.hasPrefix(project + "/") }
+        let project = Paths.canonical(project)
+        let sensitive = Paths.isCaseSensitive(at: project)
+        return workingDirectories.contains { Paths.isInside($0, project, caseSensitive: sensitive) }
     }
 
     /// The newest agent session started in the project or a folder inside it.
     public func lastAgentSession(_ project: String) -> Date? {
-        let key = Self.claudeKey(project)
+        let sensitive = Paths.isCaseSensitive(at: project)
+        let key = sensitive ? Self.claudeKey(project) : Paths.fold(Self.claudeKey(project))
         var newest: Date?
         // "-Users-me-site" also matches "-Users-me-site-old". That only ever makes a project look
         // more recently used, which is the safe direction.
-        for (name, date) in claudeSessions where name == key || name.hasPrefix(key + "-") {
-            newest = max(newest ?? date, date)
+        for (name, date) in claudeSessions {
+            let name = sensitive ? name : Paths.fold(name)
+            if name == key || name.hasPrefix(key + "-") { newest = max(newest ?? date, date) }
         }
-        for (cwd, date) in codexSessions where cwd == project || cwd.hasPrefix(project + "/") {
+        for (cwd, date) in codexSessions where Paths.isInside(cwd, project, caseSensitive: sensitive) {
             newest = max(newest ?? date, date)
         }
         return newest
@@ -131,8 +139,15 @@ public enum Activity {
             if best == nil || date > best!.date { best = (date, source) }
         }
 
+        if isGit, let git {
+            switch git.lastCommit(in: project) {
+            case .date(let date): consider(date, .commit)
+            case .none: break
+            // git gave no answer (damaged, too slow): never guess that a project is unused.
+            case .unknown: return (Date(), .unknown)
+            }
+        }
         if isGit {
-            consider(git?.lastCommit(in: project), .commit)
             // Checkouts, pulls and an editor refreshing the repository all touch these.
             for file in ["HEAD", "logs/HEAD", "index", "FETCH_HEAD"] {
                 consider(ActivityIndex.modified(project + "/.git/" + file), .git)

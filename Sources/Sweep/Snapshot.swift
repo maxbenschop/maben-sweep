@@ -102,7 +102,7 @@ enum Snapshot {
             }
             window.orderOut(nil)
         }
-        render(AskReview(projects: on.askingProjects, chosen: on.preselectedAsks(in: on.askingProjects)).environmentObject(on), "ask-review", dir)
+        render(AskReview(projects: on.askingProjects).environmentObject(on), "ask-review", dir)
         for (size, dot) in [(CGFloat(18), false), (18, true), (144, false)] {
             let image = MenuIcon.image(size: size, dot: dot)
             let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size) * 2, pixelsHigh: Int(size) * 2, bitsPerSample: 8,
