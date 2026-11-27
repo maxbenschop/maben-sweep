@@ -35,7 +35,7 @@ public struct Artifact: Codable, Identifiable, Hashable, Sendable {
 
 /// What a project's last activity was.
 public enum ActivitySource: String, Codable, Sendable {
-    case commit, files, git, agent, artifacts, unknown
+    case commit, files, git, agent, artifacts, running, unknown
 
     public var label: String {
         switch self {
@@ -44,6 +44,7 @@ public enum ActivitySource: String, Codable, Sendable {
         case .git: "git activity"
         case .agent: "agent session"
         case .artifacts: "build or install"
+        case .running: "program running"
         case .unknown: "unknown"
         }
     }
@@ -86,6 +87,18 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
 
     public var askArtifacts: [Artifact] { artifacts.filter { $0.tier == .ask } }
     public var totalBytes: Int64 { artifacts.reduce(0) { $0 + $1.bytes } }
+
+    /// The same project with its paths as the disk spells them (see `Paths.canonical`).
+    public func canonical() -> Project {
+        var project = self
+        project.path = Paths.canonical(path)
+        project.artifacts = artifacts.map { artifact in
+            var artifact = artifact
+            artifact.path = project.path + "/" + artifact.relativePath
+            return artifact
+        }
+        return project
+    }
 }
 
 public enum Removal: String, Codable, Sendable {
@@ -116,22 +129,26 @@ public struct SweepSettings: Codable, Equatable, Sendable {
     public static let warnChoices = [0, 1, 3, 7]
     public static let lowDiskChoices = [10, 20, 50]
 
-    /// Folders that usually hold code, for a new install. Only the ones that exist are used.
+    /// Folders that usually hold code, for a new install. Only the ones that exist are used, each
+    /// once and spelled as the disk has it: a disk that ignores case answers to both `~/Code` and
+    /// `~/code`, and the wrong spelling would not match the folder of a running program.
     public static func defaultRoots(home: String = NSHomeDirectory()) -> [String] {
-        ["Developer", "Projects", "Code", "code", "dev", "src", "repos", "GitHub", "git", "workspace", "work", "Sites", "Documents"]
-            .map { home + "/" + $0 }
-            .filter { path in
-                var isDir: ObjCBool = false
-                return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
-            }
-            .reduce(into: [String]()) { result, path in
-                // A case-insensitive disk lists ~/Code and ~/code as the same folder.
-                let real = (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) ?? path
-                let key = URL(fileURLWithPath: real).resolvingSymlinksInPath().path.lowercased()
-                if !result.contains(where: { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path.lowercased() == key }) {
-                    result.append(path)
-                }
-            }
+        Paths.canonical(
+            ["Developer", "Projects", "Code", "code", "dev", "src", "repos", "GitHub", "git", "workspace", "work", "Sites", "Documents"]
+                .map { home + "/" + $0 }
+                .filter { path in
+                    var isDir: ObjCBool = false
+                    return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+                })
+    }
+
+    /// The settings with every folder as the disk spells it, each once. Settings saved by an
+    /// earlier version can hold `~/code` for `~/Code`, or a path through a symlink.
+    public func canonical() -> SweepSettings {
+        var settings = self
+        settings.roots = Paths.canonical(roots)
+        settings.excluded = Paths.canonical(excluded)
+        return settings
     }
 }
 
@@ -145,10 +162,45 @@ public struct SweepState: Codable, Equatable, Sendable {
     public var pending: [String: Date] = [:]
     /// A project's own idle threshold in days.
     public var customIdleDays: [String: Int] = [:]
+    /// When a program was last seen running in a project. Counts as activity, like `kept`.
+    public var lastInUse: [String: Date] = [:]
     public var lastScan: Date?
     public var lastLowDiskAlert: Date?
+    /// Set when the saved state couldn't be read: what to tell the user, until they dismiss it.
+    public var recovery: String?
 
     public init() {}
+
+    /// Reads what it can. A field that is missing or damaged gets its default, except the
+    /// "never clean" list: losing that silently could get a protected project cleaned, so a
+    /// damaged list makes the whole read fail and `Store` deals with it.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        pinned = try values.decodeIfPresent(Set<String>.self, forKey: .pinned) ?? []
+        kept = (try? values.decodeIfPresent([String: Date].self, forKey: .kept)) ?? [:]
+        pending = (try? values.decodeIfPresent([String: Date].self, forKey: .pending)) ?? [:]
+        customIdleDays = (try? values.decodeIfPresent([String: Int].self, forKey: .customIdleDays)) ?? [:]
+        lastInUse = (try? values.decodeIfPresent([String: Date].self, forKey: .lastInUse)) ?? [:]
+        lastScan = try? values.decodeIfPresent(Date.self, forKey: .lastScan)
+        lastLowDiskAlert = try? values.decodeIfPresent(Date.self, forKey: .lastLowDiskAlert)
+        recovery = try? values.decodeIfPresent(String.self, forKey: .recovery)
+    }
+
+    /// The state with every project path as the disk spells it, so a project that was pinned
+    /// under `~/code/site` is still pinned when it is found as `~/Code/site`. Where two spellings
+    /// meet, the careful value wins: the later date, the longer idle time.
+    public func canonical() -> SweepState {
+        var state = self
+        state.pinned = Set(pinned.map { Paths.canonical($0) })
+        func later(_ values: [String: Date]) -> [String: Date] {
+            Dictionary(values.map { (Paths.canonical($0.key), $0.value) }, uniquingKeysWith: max)
+        }
+        state.kept = later(kept)
+        state.pending = later(pending)
+        state.lastInUse = later(lastInUse)
+        state.customIdleDays = Dictionary(customIdleDays.map { (Paths.canonical($0.key), $0.value) }, uniquingKeysWith: max)
+        return state
+    }
 }
 
 /// One cleanup, kept so it can be shown and undone.

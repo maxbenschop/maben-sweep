@@ -10,9 +10,13 @@ import SweepCore
 ///    waking if the last check is over 6 hours old, and when you press Check now. This is the only
 ///    network request the app makes.
 /// 2. Download `Maben-Sweep.zip` from that release to a temporary folder.
+///    Only a file from this repository's releases on github.com is accepted.
 /// 3. Verify before touching anything: the app inside must be signed with the Developer ID of team
 ///    NJTYRVLSA8 with this bundle ID, notarized by Apple (Gatekeeper accepts it), and the announced version.
-/// 4. Install: the old app goes to the Trash, the new one takes its place, and it restarts.
+/// 4. Install: the new app is copied next to the installed one and verified again there, then the
+///    two are swapped by renaming, so the installed app is never missing. The old one goes to the
+///    Trash, and the app restarts. In a folder only an administrator can write, the same steps
+///    run as root after a password prompt (`UpdateInstall.rootCommand`).
 ///
 /// Automatic installs wait until no scan or cleanup is running.
 @MainActor
@@ -69,6 +73,8 @@ final class Updater: ObservableObject {
     /// Call once at launch. Does nothing for a copy that isn't a real app (`swift run`, tests, demo).
     func start() {
         guard isBundled, AppModel.shared.live else { return }
+        // What an update that was interrupted left next to the app.
+        if canInstall { UpdateInstall.removeLeftovers(nextTo: Bundle.main.bundleURL) }
         schedule()
         if autoCheck {
             DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.check(userInitiated: false) }
@@ -189,12 +195,12 @@ final class Updater: ObservableObject {
             else { throw Failure("The update doesn't contain an app.") }
             try Self.verify(newApp, expectedVersion: release.version)
             let target = await MainActor.run { Bundle.main.bundleURL }
-            try Self.replace(target, with: newApp)
+            try Self.replace(target, with: newApp, version: release.version)
             try? fm.removeItem(at: work)
             await MainActor.run { self.relaunch() }
         } catch {
             try? fm.removeItem(at: work)
-            let message = (error as? Failure)?.message ?? error.localizedDescription
+            let message = (error as? Failure)?.message ?? (error as? UpdateInstall.Failure)?.message ?? error.localizedDescription
             await MainActor.run { self.state = .failed(message) }
         }
     }
@@ -207,15 +213,16 @@ final class Updater: ObservableObject {
         guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else {
             throw Failure("The update isn't a valid app.")
         }
-        let text = "anchor apple generic and identifier \"\(bundleID)\" and certificate leaf[subject.OU] = \"\(teamID)\""
+        let text = UpdateInstall.requirement(teamID: teamID, bundleID: bundleID)
         var requirement: SecRequirement?
         guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement else {
             throw Failure("Couldn't check the update's signature.")
         }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
         guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
-            throw Failure("The update isn't signed by Maben. It was not installed.")
+            throw Failure("The update isn't signed by Maben and notarized by Apple. It was not installed.")
         }
+        // Gatekeeper's own answer as well: it also knows what Apple has revoked.
         guard run("/usr/sbin/spctl", ["--assess", "--type", "execute", app.path]) == 0 else {
             throw Failure("The update isn't notarized by Apple. It was not installed.")
         }
@@ -225,25 +232,32 @@ final class Updater: ObservableObject {
         }
     }
 
-    /// Swaps the app bundle. The old copy goes to the Trash, so it can be restored by hand.
-    nonisolated static func replace(_ target: URL, with newApp: URL) throws {
+    /// Swaps the app bundle. `newApp` has passed `verify` already, so a bad download never gets as
+    /// far as a password prompt; the copy that is put in place is verified once more where it stands.
+    nonisolated static func replace(_ target: URL, with newApp: URL, version: String) throws {
         let fm = FileManager.default
         if fm.isWritableFile(atPath: target.deletingLastPathComponent().path) && fm.isWritableFile(atPath: target.path) {
-            var trashed: NSURL?
-            try fm.trashItem(at: target, resultingItemURL: &trashed)
-            do {
-                try fm.copyItem(at: newApp, to: target)
-            } catch {
-                if let trashed { try? fm.moveItem(at: trashed as URL, to: target) }   // put the old one back
-                throw Failure("Couldn't install the update: \(error.localizedDescription)")
-            }
+            try UpdateInstall.swap(target, with: newApp, verify: { try verify($0, expectedVersion: version) })
         } else {
-            // Installed by an administrator: ask for the password once.
-            let q = { (s: String) in "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-            let staged = target.deletingLastPathComponent().appendingPathComponent(".Maben Sweep.update.app").path
-            let command = "/bin/rm -rf \(q(staged)) && /usr/bin/ditto \(q(newApp.path)) \(q(staged)) && /bin/rm -rf \(q(target.path)) && /bin/mv \(q(staged)) \(q(target.path))"
-            let script = "do shell script \"\(command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\" with prompt \"Maben Sweep wants to install an update.\" with administrator privileges"
-            guard run("/usr/bin/osascript", ["-e", script]) == 0 else { throw Failure("The update was not installed (no administrator password).") }
+            // Installed by an administrator: ask for the password once. Root copies, checks and
+            // swaps (`UpdateInstall.rootCommand`).
+            let command = UpdateInstall.rootCommand(newApp: newApp.path, target: target.path,
+                                                    requirement: UpdateInstall.requirement(teamID: teamID, bundleID: bundleID),
+                                                    version: version, token: UUID().uuidString)
+            let script = UpdateInstall.appleScript(running: command, prompt: "Maben Sweep wants to install an update.")
+            let p = Process(), errors = Pipe()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            p.arguments = ["-e", script]
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = errors
+            do { try p.run() } catch { throw Failure("The update was not installed: the password prompt couldn't be shown.") }
+            p.waitUntilExit()
+            guard p.terminationStatus == 0 else {
+                // osascript always says why it failed; -128 is Cancel in the password dialog.
+                let message = String(decoding: errors.fileHandleForReading.availableData, as: UTF8.self)
+                throw Failure(message.contains("(-128)") ? "The update was not installed (no administrator password)."
+                              : "The update was not installed: it couldn't be copied or didn't pass the checks.")
+            }
         }
     }
 

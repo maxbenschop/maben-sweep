@@ -32,9 +32,9 @@ public enum Planner {
         state.customIdleDays[project.path] ?? settings.idleDays
     }
 
-    /// Last activity, where "Keep for now" counts as activity.
+    /// Last activity, where "Keep for now" and a program seen running in the project count as activity.
     public static func effectiveActivity(of project: Project, state: SweepState) -> Date {
-        max(project.lastActivity, state.kept[project.path] ?? .distantPast)
+        max(project.lastActivity, state.kept[project.path] ?? .distantPast, state.lastInUse[project.path] ?? .distantPast)
     }
 
     public static func status(of project: Project, settings: SweepSettings, state: SweepState, now: Date = Date()) -> ProjectStatus {
