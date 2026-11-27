@@ -3,7 +3,7 @@
 Every release of Maben Sweep. The newest version is at the top. `publish.sh` uses the section for the version it
 releases as the GitHub release notes, the app shows it under About, and sweep.maben.gg/changelog is built from this file.
 
-## Unreleased
+## 1.1.2 · 27 November 2026
 
 - Looking at a folder can no longer make git run a program or fetch from a server, whatever the folder's own git settings say. Every question to git has a time limit, and a folder git can't answer for is left alone.
 - A project that was never committed, inside an ignored folder of a repository (`scratch/old-site`), asks first. It used to be cleaned automatically.
